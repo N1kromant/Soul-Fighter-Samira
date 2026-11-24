@@ -72,7 +72,8 @@ function Sprite(path, loadGraphics)
     }, true
 end
 function Font(path)
-    assert(path == 'font/samira_items_ru.fnt')
+    if path == 'mods/samira_testroom/resources/font/samira_items_ru.fnt' then return nil, false end
+    assert(path == 'font/samira_items_ru.fnt' or path == 'font/pftempestasevencondensed.fnt')
     return {
         GetStringWidthUTF8 = function(_, text) return utf8.len(text) * 7 end,
         DrawStringScaledUTF8 = function(_, text, x, y) words[#words + 1] = {text, x, y} end,

@@ -9,10 +9,14 @@ for _, row in ipairs(include('samira_items_data')) do items[row.riotId] = row en
 local panelWidth, panelHeight, pageSize = 358, 184, 7
 local inventory, owner, font, colors, artwork
 local page, selected, feedback, feedbackOK
+local metadata = XMLData and XMLData.GetCurrentMod and XMLData.GetCurrentMod()
+local modDirectory = metadata and metadata.fulldirectory or 'mods/samira_testroom'
 
 local function setup()
     if font then return true end
-    local candidate, loaded = Font('font/samira_items_ru.fnt')
+    -- Font:Load does not search the mod's resources like Sprite:Load does.
+    local candidate, loaded = Font(modDirectory .. '/resources/font/samira_items_ru.fnt')
+    if not loaded then candidate, loaded = Font('font/pftempestasevencondensed.fnt') end
     if not loaded then return false end
     font = candidate
     colors = {

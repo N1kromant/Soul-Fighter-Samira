@@ -159,6 +159,8 @@ function Game()
 end
 local actualInclude = include
 local shop
+local modDirectory = 'C:/Isaac/mods/renamed_samira_testroom'
+XMLData = {GetCurrentMod = function() return {fulldirectory = modDirectory} end}
 function include(name)
     local module = actualInclude(name)
     if name == 'samira_shop_crafting' then shop = module end
@@ -183,7 +185,8 @@ local renderedRecipes = false
 Isaac.DrawLine = function() end
 Isaac.RenderText = function() end
 KColor = function(...) return {...} end
-function Font()
+function Font(path)
+    if path ~= modDirectory .. '/resources/font/samira_items_ru.fnt' then return nil, false end
     return {
         GetStringWidthUTF8 = function(_, label) return #label end,
         DrawStringScaledUTF8 = function(_, label)
