@@ -5,6 +5,7 @@ import hashlib
 import json
 import shutil
 import zipfile
+import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULES = ("overlay model bridge layered_surface samira_vfx client_vfx canvas system_pointer samira_audio "
@@ -19,12 +20,22 @@ YONE_AUDIO = (
 
 
 def build(output, *, include_local_yone=False, include_local_mf=False, staging_area=None,
-          python_runtime=None, yone_assets=None):
+          python_runtime=None, yone_assets=None, dependency_archive=None, version=None):
     python_runtime = python_runtime or ROOT / "work/export-runtime/python"
     yone_assets = yone_assets or ROOT / "assets/yone-local"
     mf_assets = ROOT / "assets/mf-local"
+    version = version or ET.parse(ROOT / "src/samira-testroom/mod/metadata.xml").findtext("version")
+    if not version or any(c not in "0123456789.-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ" for c in version):
+        raise ValueError("Invalid release version")
+    dependency_zip = zipfile.ZipFile(dependency_archive) if dependency_archive else None
+    if dependency_zip and dependency_zip.testzip():
+        raise ValueError("Dependency archive failed CRC verification")
+    def dependency_member(relative):
+        return "Soul-Fighter-Samira/companion/" + relative
+    def has_yone(name):
+        return (yone_assets / name).is_file() or bool(dependency_zip and dependency_member("assets/yone-local/" + name) in dependency_zip.namelist())
     if include_local_yone:
-        missing = [name for name in YONE_FILES if not (yone_assets / name).is_file()]
+        missing = [name for name in YONE_FILES if not has_yone(name)]
         if missing:
             raise FileNotFoundError("Run tools/import_yone_assets.py first. Missing from assets/yone-local: "
                                     + ", ".join(missing))
@@ -69,7 +80,8 @@ def build(output, *, include_local_yone=False, include_local_mf=False, staging_a
         path = f"src/samira/external/{name}.py"
         if (ROOT / path).is_file():
             copy(path, f"companion/{path}")
-    copy("src/samira/external/assets/mastery", "companion/src/samira/external/assets/mastery")
+    copy("src/samira/external/assets", "companion/src/samira/external/assets")
+    copy("src/samira-testroom/mod/resources/gfx/mf", "companion/src/samira-testroom/mod/resources/gfx/mf")
     for name in ("model.glb", "rig-events.json"):
         copy(f"src/samira/reference/source/{name}", f"companion/src/samira/reference/source/{name}")
     copy("tools/run_testroom_renderer.py", "companion/tools/run_testroom_renderer.py")
@@ -77,8 +89,19 @@ def build(output, *, include_local_yone=False, include_local_mf=False, staging_a
     for name in ("audio", "vfx", "manifest.json"):
         copy(f"assets/samira-soul-fighter/{name}", f"companion/assets/samira-soul-fighter/{name}")
     if include_local_yone:
+        if dependency_zip:
+            prefix = dependency_member("assets/yone-local/")
+            for member in dependency_zip.namelist():
+                if member.startswith(prefix) and not member.endswith("/"):
+                    relative = Path(member[len(prefix):])
+                    if relative.is_absolute() or ".." in relative.parts:
+                        raise ValueError("Unsafe dependency member")
+                    target = stage / "companion/assets/yone-local" / relative
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(dependency_zip.read(member))
         for name in YONE_FILES:
-            copy(yone_assets / name, f"companion/assets/yone-local/{name}")
+            if (yone_assets / name).is_file():
+                copy(yone_assets / name, f"companion/assets/yone-local/{name}")
         local_vfx = ROOT / "assets/yone-local/vfx"
         vfx = local_vfx if local_vfx.is_dir() else yone_assets / "vfx"
         if vfx.is_dir():
@@ -139,20 +162,34 @@ def build(output, *, include_local_yone=False, include_local_mf=False, staging_a
            "Miss Fortune Dance effect provenance: samira_testroom/resources/gfx/mf/dance_effects.provenance.json.\n"
            "Miss Fortune Death and Respawn effect provenance: samira_testroom/resources/gfx/mf/lifecycle_effects.provenance.json.\n"
            if include_local_mf else ""), encoding="utf-8")
+    dependency_info = {
+        "version": version,
+        "python_runtime": {"python_exe_sha256": hashlib.sha256((python_runtime / "python.exe").read_bytes()).hexdigest()},
+        "dependency_archive": ({"name": dependency_archive.name, "sha256": hashlib.sha256(dependency_archive.read_bytes()).hexdigest(),
+                                "used_prefix": dependency_member("assets/yone-local/")} if dependency_archive else None),
+    }
+    (stage / "BUILD.json").write_text(json.dumps(dependency_info, indent=2), encoding="utf-8")
+    if dependency_zip:
+        dependency_zip.close()
     files = sorted(p for p in stage.rglob("*") if p.is_file())
     manifest = {p.relative_to(stage).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
     (stage / "SHA256SUMS.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     archive_name = "Soul-Fighter-Samira-0.3.2-Windows.zip"
     if include_local_mf:
-        archive_name = "Soul-Fighter-Miss-Fortune-Local-Windows.zip"
+        archive_name = f"Soul-Fighter-Miss-Fortune-{version}-Windows-Test.zip"
     elif include_local_yone:
         archive_name = "Soul-Fighter-Samira-Yone-Local-Windows.zip"
     archive = output / archive_name
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
         for path in sorted(stage.rglob("*")):
             if path.is_file():
-                z.write(path, path.relative_to(stage.parent))
-        z.writestr("Soul-Fighter-Samira/companion/work/", "")
+                info = zipfile.ZipInfo(path.relative_to(stage.parent).as_posix(), (2020, 1, 1, 0, 0, 0))
+                info.compress_type = zipfile.ZIP_DEFLATED
+                info.external_attr = 0o100644 << 16
+                z.writestr(info, path.read_bytes(), compresslevel=6)
+        info = zipfile.ZipInfo("Soul-Fighter-Samira/companion/work/", (2020, 1, 1, 0, 0, 0))
+        info.external_attr = 0o40755 << 16
+        z.writestr(info, "")
     with zipfile.ZipFile(archive) as z:
         bad = z.testzip()
         if bad:
@@ -172,6 +209,9 @@ if __name__ == "__main__":
                         help="Include the supplied Miss Fortune model in a personal ZIP.")
     parser.add_argument("--python-runtime", type=Path, help="Path to the prepared embedded Python installation.")
     parser.add_argument("--yone-assets", type=Path, help="Path to the locally imported Yone assets.")
+    parser.add_argument("--dependency-archive", type=Path, help="Verified prior portable ZIP; reuse only Yone asset files, never old code.")
+    parser.add_argument("--version", help="Package version (defaults to mod metadata.xml).")
     arguments = parser.parse_args()
     build(arguments.output, include_local_yone=arguments.include_local_yone, include_local_mf=arguments.include_local_mf,
-          staging_area=arguments.staging_area, python_runtime=arguments.python_runtime, yone_assets=arguments.yone_assets)
+          staging_area=arguments.staging_area, python_runtime=arguments.python_runtime, yone_assets=arguments.yone_assets,
+          dependency_archive=arguments.dependency_archive, version=arguments.version)

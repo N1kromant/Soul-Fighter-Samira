@@ -85,7 +85,7 @@ function Combat.cast(s, key, p, aim, clock, room, items, weapons)
         local attackInterval = p.MaxFireDelay and p.MaxFireDelay + 1 or baseAttackInterval
         local windup = math.max(2, math.min(24, math.floor(baseQWindup * attackInterval / baseAttackInterval + .5)))
         if not weapons or not weapons.requestQ
-            or not weapons.requestQ(p, facing, clock, aim, clock+windup, true) then return false end
+            or not weapons.requestQ(p, facing, clock, aim, clock+windup, true, true) then return false end
     elseif key == 'w' then
         s.wUntil = clock + strutFrames
         Combat.grantStrut(s, clock)

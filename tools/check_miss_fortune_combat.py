@@ -41,8 +41,8 @@ end
 p={Position=Vector(0,0),Damage=4}
 items={newAttack=function(p,k,t) return {kind=k, origin=p.Position} end,
  withContext=function(c,f) return f() end, onCast=function() end}
-weapons={requestQ=function(_,_,_,_,releaseAt,chargeDuringWindup)
-    qReleaseAt,qPrecharge=releaseAt,chargeDuringWindup
+weapons={requestQ=function(_,_,_,_,releaseAt,chargeDuringWindup,lockAim)
+    qReleaseAt,qPrecharge,qLockAim=releaseAt,chargeDuringWindup,lockAim
     return true
 end}
 ''')
@@ -57,7 +57,7 @@ end
 local s=Combat.new(0)
 local doubleUp=Combat.new(0)
 assert(Combat.cast(doubleUp,'q',p,Vector(100,0),10,nil,items,weapons))
-assert(qReleaseAt==18 and qPrecharge,'Double Up schedules its eight-tick cast and parallel weapon charge')
+assert(qReleaseAt==18 and qPrecharge and qLockAim,'Double Up schedules its eight-tick cast and parallel weapon charge')
 do
     p.MaxFireDelay=3
     local fast=Combat.new(0)
@@ -323,3 +323,67 @@ Combat.resetRoom(r); Combat.update(r,p,93,nil,items)
 assert(#r.pendingBounce==0 and r.rain==nil and r.lastTarget==nil and not Combat.loveTapTarget(r))
 ''')
 print('Miss Fortune combat checks passed')
+
+# Reuse the native adapter's callback fixture, before its scenario section.
+# Run these regressions in the same Lua chunk so the fixture's locals stay local.
+import ast
+adapter_tree = ast.parse((ROOT / 'tools/check_samira_weapons.py').read_text(encoding='utf-8'))
+adapter_chunk = next(
+    node.value.args[0].value for node in adapter_tree.body
+    if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call)
+    and isinstance(node.value.func, ast.Attribute) and node.value.func.attr == 'execute'
+)
+fixture = adapter_chunk.split('-- Miss Fortune\'s cast timer', 1)[0]
+assert fixture != adapter_chunk, 'native adapter fixture boundary must exist'
+adapter_lua = LuaRuntime()
+adapter_lua.globals().weaponSource = (ROOT / 'src/samira-testroom/mod/samira_weapons.lua').read_text(encoding='utf-8')
+adapter_lua.execute(fixture + r'''
+-- Slow charged Q retains MF's cast direction after the windup.
+p.Position=Vector(0,0)
+reset('brimstone',20)
+assert(Weapons.requestQ(p,Vector(1,0),ticks,Vector(100,0),2,true,true))
+for _=1,3 do begin(nil); endFrame() end
+Weapons.trackCursor(p,Vector(0,100))
+begin(nil)
+assert(input('GET_ACTION_VALUE','RIGHT')==1 and input('GET_ACTION_VALUE','DOWN')==0,
+    'Miss Fortune Q must keep its heading throughout a slow native charge')
+endFrame()
+-- Ordinary Samira requests retain their existing cursor tracking.
+reset('brimstone',20)
+assert(Weapons.requestQ(p,Vector(1,0),ticks,Vector(100,0),2,true))
+for _=1,3 do begin(nil); endFrame() end
+p.Position=Vector(0,0)
+Weapons.trackCursor(p,Vector(0,100))
+begin(nil)
+assert(input('GET_ACTION_VALUE','DOWN')==1 and input('GET_ACTION_VALUE','RIGHT')==0)
+endFrame()
+
+-- Delayed children retain the original attack after losing engine ancestry.
+-- These are carrier-level simulations, not item-specific engine validation.
+for _,kind in ipairs({'TEAR','BOMB','LASER'}) do
+    reset('tears',0)
+    assert(Weapons.requestQ(p,Vector(1,0),ticks))
+    begin(Vector(1,0))
+    local root=object('TEAR',p)
+    event('MC_POST_FIRE_TEAR',root)
+    trigger(); endFrame()
+    local original=Weapons.context(p,ref(root))
+    local child=object(kind,root)
+    event(kind=='TEAR' and 'MC_POST_FIRE_TEAR' or kind=='BOMB' and 'MC_POST_FIRE_BOMB'
+        or 'MC_POST_FIRE_TECH_LASER',child)
+    child.SpawnerEntity=nil
+    assert(Weapons.context(p,ref(child))==original,
+        kind .. ' delayed output must retain Q when its engine parent is detached')
+    local split=object('TEAR',root)
+    event('MC_POST_FIRE_SPLIT_TEAR',split,root)
+    local descendant=object(kind,split)
+    event(kind=='TEAR' and 'MC_POST_FIRE_TEAR' or kind=='BOMB' and 'MC_POST_FIRE_BOMB'
+        or 'MC_POST_FIRE_TECH_LASER',descendant)
+    descendant.SpawnerEntity=nil
+    local inherited,_,_,isSplit=Weapons.context(p,ref(descendant))
+    assert(inherited==original and isSplit,kind .. ' delayed descendant must retain split exclusion')
+    Weapons.reset()
+    assert(not Weapons.context(p,ref(child)), 'room reset invalidates retained ancestry')
+end
+''')
+print('Miss Fortune charged-aim and delayed-carrier regression checks passed')

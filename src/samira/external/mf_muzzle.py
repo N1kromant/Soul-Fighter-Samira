@@ -80,7 +80,7 @@ class MuzzleFlashes:
         kind, start, finish = cue.get('kind'), cue.get('start'), cue.get('finish')
         if not isinstance(kind, str) or kind not in SPRITES or not _number(start) or not _number(finish) or finish <= start:
             return
-        if clock >= finish:
+        if clock < start or clock >= finish:
             return
         if kind == 'r':
             gun = cue.get('gun')

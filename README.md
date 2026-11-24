@@ -1,6 +1,8 @@
-# Samira in Isaac
+# Samira, Yone и Miss Fortune в Isaac
 
-[Скачать Windows-сборку](https://github.com/AverDroz/Soul-Fighter-Samira/releases/latest) · [Установка и запуск](docs/INSTALL.md)
+Локальная тестовая сборка **0.5.47** включает Samira, Yone и Miss Fortune. [Воспроизводимая сборка Windows ZIP и проверка](docs/PORTABLE-BUILD.md). Проверку в игре выполняет тестер; сборщик игру не запускает.
+
+[Скачать тестовую Windows-сборку с МФ 0.5.47](https://github.com/AverDroz/Soul-Fighter-Samira/releases/tag/mf-v0.5.47) · [Исправления и игровой прогон](docs/MISS-FORTUNE-0.5.47.md) · [Установка и запуск](docs/INSTALL.md)
 
 Личный мод для The Binding of Isaac: Repentance+ с REPENTOGON. **Samira выбирается в меню персонажей** и начинает с трёх красных сердец и базовыми характеристиками Isaac. Мод добавляет управление мышью и QWER, ранги стиля, 73 предмета LoL, магазин компонентов и рюкзак на шесть слотов. [Запуск и управление](src/samira-testroom/README.md)
 

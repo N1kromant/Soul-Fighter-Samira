@@ -758,6 +758,14 @@ for _,interrupt in ipairs({Keyboard.KEY_A,'mouse1'}) do
  call('MC_PRE_GAME_EXIT')
 end
 
+-- A new ability order cancels the channel and actually casts on the same key edge.
+call('MC_POST_GAME_STARTED',false)
+held.r=true; advance(clock+1); held.r=false; advance(clock+2)
+assert(packet.mfBarrage)
+key(Keyboard.KEY_E,true); advance(clock+1); key(Keyboard.KEY_E,false)
+assert(not packet.mfBarrage and packet.clip=='e','R to E swallowed the new spell order')
+call('MC_PRE_GAME_EXIT')
+
 player.Position,player.Velocity=Vector.Zero,Vector.Zero
 call('MC_POST_GAME_STARTED',false)
 advance(clock+6)

@@ -95,13 +95,13 @@ function Weapons.update(p, _, aim, enabled, point)
     direction, aimPoint, allow = aim, point, enabled
 end
 
-function Weapons.requestQ(p, aim, clock, point, releaseAt, chargeDuringWindup)
+function Weapons.requestQ(p, aim, clock, point, releaseAt, chargeDuringWindup, lockAim)
     local weapon = weaponOf(p)
     if request or not weapon or not aim or aim:Length() <= .001 then return false end
     local pulse, remote = currentPulse(weapon)
     if remote and not pulseAvailable(pulse) then return false end
     request = {player = p, heading = aim:Normalized(), clock = clock, pulse = pulse, point = point,
-        releaseAt = releaseAt or clock, chargeDuringWindup = chargeDuringWindup == true}
+        releaseAt = releaseAt or clock, chargeDuringWindup = chargeDuringWindup == true, lockAim = lockAim == true}
     currentHeld, lastHeld, frame = nil, nil, nil
     return true
 end
@@ -116,7 +116,7 @@ function Weapons.hasPendingQ(p)
 end
 
 function Weapons.trackCursor(p, point)
-    if request and same(request.player, p) and not request.pulse and game:GetFrameCount() > request.releaseAt
+    if request and not request.lockAim and same(request.player, p) and not request.pulse and game:GetFrameCount() > request.releaseAt
         and Weapons.isChargeWeapon(p) then
         if request.chargeDuringWindup and isRocketWeapon(weaponOf(p)) then return end
         local delta = point - p.Position
@@ -438,9 +438,10 @@ local function output(entity)
     if not entity then return end
     local batch = frame
     if not batch or not ownerMatches(batch.player, entity) then
-        -- A bomb or tear can spawn a beam outside the player update.
-        -- Capture the original volley before the engine drops the parent.
-        if entity.Type == EntityType.ENTITY_LASER then inheritOutput(entity) end
+        -- Delayed native children can spawn outside the player update.
+        -- Snapshot ancestry before the engine drops the parent, for every
+        -- carrier (including tears and bombs), not only child lasers.
+        inheritOutput(entity)
         return
     end
     local data = entity:GetData()

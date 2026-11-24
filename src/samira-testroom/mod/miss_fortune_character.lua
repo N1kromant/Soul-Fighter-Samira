@@ -690,8 +690,12 @@ function MF.init(mod,g,itemModule,inventory,weaponModule,readHudScale,readR,shar
             local trigger=down[key] and not state.held[key]
             state.held[key]=down[key]
             if allowed and trigger then
-                if state.combat.r then Combat.cancelUltimate(state.combat); animation('r_out',clock,12)
-                elseif Combat.cast(state.combat,key,p,aim,clock,room,items,weapons) then
+                local interrupted = state.combat.r ~= nil
+                if interrupted then
+                    Combat.cancelUltimate(state.combat)
+                    animation('r_out',clock,12)
+                end
+                if not (interrupted and key=='r') and Combat.cast(state.combat,key,p,aim,clock,room,items,weapons) then
                     if key~='w' then
                         state.face=(aim-p.Position):Length()>.001 and (aim-p.Position):Normalized() or state.face
                     end
