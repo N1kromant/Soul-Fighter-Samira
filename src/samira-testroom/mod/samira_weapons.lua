@@ -95,13 +95,13 @@ function Weapons.update(p, _, aim, enabled, point)
     direction, aimPoint, allow = aim, point, enabled
 end
 
-function Weapons.requestQ(p, aim, clock, point, releaseAt, chargeDuringWindup)
+function Weapons.requestQ(p, aim, clock, point, releaseAt, chargeDuringWindup, lockAim)
     local weapon = weaponOf(p)
     if request or not weapon or not aim or aim:Length() <= .001 then return false end
     local pulse, remote = currentPulse(weapon)
     if remote and not pulseAvailable(pulse) then return false end
     request = {player = p, heading = aim:Normalized(), clock = clock, pulse = pulse, point = point,
-        releaseAt = releaseAt or clock, chargeDuringWindup = chargeDuringWindup == true}
+        releaseAt = releaseAt or clock, chargeDuringWindup = chargeDuringWindup == true, lockAim = lockAim == true}
     currentHeld, lastHeld, frame = nil, nil, nil
     return true
 end
@@ -115,8 +115,16 @@ function Weapons.hasPendingQ(p)
     return request ~= nil and same(request.player, p)
 end
 
+function Weapons.stopAttack(p)
+    if not same(p, playerProvider()) or Weapons.hasPendingQ(p) then return end
+    stopCharge(p)
+    direction, aimPoint, frame, lastAim, lastHeld, currentHeld = nil, nil, nil, nil, nil, nil
+    releasedWeapon = nil
+end
+
 function Weapons.trackCursor(p, point)
-    if request and same(request.player, p) and not request.pulse and game:GetFrameCount() > request.releaseAt
+    if request and not request.lockAim and same(request.player, p) and not request.pulse
+        and game:GetFrameCount() > request.releaseAt
         and Weapons.isChargeWeapon(p) then
         if request.chargeDuringWindup and isRocketWeapon(weaponOf(p)) then return end
         local delta = point - p.Position
@@ -413,11 +421,15 @@ local function mirroredOutput(entity, familiar)
     return true
 end
 
-local function inheritOutput(entity)
+local function outputAncestry(entity)
+    return shotTag(entity.Parent, 3) or shotTag(entity.SpawnerEntity, 3)
+end
+
+local function inheritOutput(entity, inherited)
     local data = entity:GetData()
     local tagAtSpawn = data.SamiraNativeWeapon
     if tagAtSpawn and tagAtSpawn.generation == generation and tagAtSpawn.derived then return true end
-    local inherited = shotTag(entity.Parent, 3) or shotTag(entity.SpawnerEntity, 3)
+    inherited = inherited or outputAncestry(entity)
     if not inherited then return false end
     if inherited.split and entity.Type == EntityType.ENTITY_TEAR then
         data.SamiraSplitTear = generation
@@ -434,17 +446,30 @@ local function claimOutput(batch, entity)
     batch.hadOutput = true
 end
 
+local function resolveDelayedTear(tear)
+    local data = tear:GetData()
+    local inherited = data.SamiraDelayedTear
+    data.SamiraDelayedTear = nil
+    if inherited and inherited.generation == generation then inheritOutput(tear, inherited) end
+end
+
 local function output(entity)
     if not entity then return end
-    local batch = frame
-    if not batch or not ownerMatches(batch.player, entity) then
-        -- A bomb or tear can spawn a beam outside the player update.
-        -- Capture the original volley before the engine drops the parent.
-        if entity.Type == EntityType.ENTITY_LASER then inheritOutput(entity) end
-        return
-    end
     local data = entity:GetData()
     if data.SamiraSplitTear == generation then return end
+    local delayed = data.SamiraDelayedTear
+    if delayed and delayed.generation == generation then return end
+    local batch = frame
+    if not batch or not ownerMatches(batch.player, entity) then
+        -- Capture ancestry before the engine drops the parent. Delay tear
+        -- modifiers until the split callback has had a chance to classify it.
+        if entity.Type == EntityType.ENTITY_TEAR then
+            data.SamiraDelayedTear = outputAncestry(entity)
+        elseif entity.Type == EntityType.ENTITY_BOMB or entity.Type == EntityType.ENTITY_LASER then
+            inheritOutput(entity)
+        end
+        return
+    end
     if entity.Type == EntityType.ENTITY_TEAR then
         -- The generic callback can arrive before MC_POST_FIRE_SPLIT_TEAR.
         if data.SamiraPendingTear == batch then return end
@@ -473,8 +498,9 @@ end
 local function inheritedOutput(tear, source)
     if not tear or tear.Type ~= EntityType.ENTITY_TEAR then return end
     local data = tear:GetData()
-    data.SamiraSplitTear, data.SamiraPendingTear = generation, nil
-    local inherited = shotTag(source, 3)
+    local delayed = data.SamiraDelayedTear
+    data.SamiraSplitTear, data.SamiraPendingTear, data.SamiraDelayedTear = generation, nil, nil
+    local inherited = shotTag(source, 3) or delayed
     if frame and source:Exists() and source:GetData().SamiraPendingTear == frame then
         resolveTear(frame, source)
         inherited = shotTag(source, 3)
@@ -491,7 +517,10 @@ local function complete(batch, heading, weapon)
         -- Reused knives and beam handles are only claimed on real discharge.
         if entity and ownerMatches(batch.player, entity) then
             local data = entity:GetData()
-            if data.SamiraSplitTear ~= generation and data.SamiraPendingTear ~= batch then
+            local tagged, delayed = data.SamiraNativeWeapon, data.SamiraDelayedTear
+            if data.SamiraSplitTear ~= generation and data.SamiraPendingTear ~= batch
+                and not (tagged and tagged.generation == generation and tagged.derived)
+                and not (delayed and delayed.generation == generation) then
                 tag(batch.player, entity, newContext(batch))
                 aimOutput(batch, entity)
             end
@@ -578,6 +607,7 @@ end
 function Weapons.context(p, source, extraSource)
     local entity = extraSource and extraSource.Entity or source and source.Entity
     if not entity then return end
+    if entity.Type == EntityType.ENTITY_TEAR then resolveDelayedTear(entity) end
     local tag = shotTag(entity, 3)
     local weapon = weaponOf(p)
     if weapon and same(weapon:GetMainEntity(), entity) and ludovico(weapon, entity)
@@ -641,7 +671,10 @@ function Weapons.init(mod, currentGame, getPlayer, itemModule, onFired)
     end
     callback('MC_PRE_PLAYER_UPDATE', function(_, p) beginFrame(p) end)
     callback('MC_POST_PLAYER_UPDATE', function(_, p) endFrame(p) end)
-    callback('MC_POST_TEAR_UPDATE', function(_, tear) restorePulse(tear) end)
+    callback('MC_POST_TEAR_UPDATE', function(_, tear)
+        resolveDelayedTear(tear)
+        restorePulse(tear)
+    end)
     callback('MC_POST_LASER_INIT', function(_, laser) inheritOutput(laser) end)
     callback('MC_POST_LASER_UPDATE', function(_, laser)
         restorePulse(laser)

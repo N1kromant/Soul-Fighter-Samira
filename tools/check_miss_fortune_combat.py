@@ -41,8 +41,8 @@ end
 p={Position=Vector(0,0),Damage=4}
 items={newAttack=function(p,k,t) return {kind=k, origin=p.Position} end,
  withContext=function(c,f) return f() end, onCast=function() end}
-weapons={requestQ=function(_,_,_,_,releaseAt,chargeDuringWindup)
-    qReleaseAt,qPrecharge=releaseAt,chargeDuringWindup
+weapons={requestQ=function(_,_,_,_,releaseAt,chargeDuringWindup,lockAim)
+    qReleaseAt,qPrecharge,qLockAim=releaseAt,chargeDuringWindup,lockAim
     return true
 end}
 ''')
@@ -56,8 +56,9 @@ local function cue(state,kind)
 end
 local s=Combat.new(0)
 local doubleUp=Combat.new(0)
-assert(Combat.cast(doubleUp,'q',p,Vector(100,0),10,nil,items,weapons))
-assert(qReleaseAt==18 and qPrecharge,'Double Up schedules its eight-tick cast and parallel weapon charge')
+local cast,interrupted,movementUntil=Combat.cast(doubleUp,'q',p,Vector(100,0),10,nil,items,weapons)
+assert(cast and not interrupted and movementUntil==qReleaseAt)
+assert(qReleaseAt==18 and qPrecharge and qLockAim,'Double Up locks aim while scheduling its windup and charge')
 do
     p.MaxFireDelay=3
     local fast=Combat.new(0)
@@ -152,8 +153,10 @@ do
     Combat.update(wide,p,2,nil,items)
     assert(wide.pendingBounce[1].destination==closeSide,'the widest ricochet angle is reserved for very close targets')
 end
+assert(Combat.attackSpeed(s,139)==.76,'Miss Fortune fires more slowly outside Strut')
 assert(Combat.cast(s,'w',p,Vector(1,0),140,nil,items,weapons))
-assert(Combat.attackSpeed(s,141)>1 and Combat.attackSpeed(s,260)==1)
+assert(Combat.attackSpeed(s,140)==1.35 and Combat.attackSpeed(s,259)==1.35
+    and Combat.attackSpeed(s,260)==.76,'the original Strut rate lasts 120 frames')
 assert(Combat.speed(s,140)==1.2 and Combat.strut(s,140)==1 and Combat.strut(s,260)==0)
 local waiting=Combat.new(0)
 assert(Combat.speed(waiting,119)==1 and Combat.speed(waiting,120)==1.1 and Combat.speed(waiting,210)==1.2)
@@ -269,6 +272,30 @@ local outside=enemy(12,230,72)
 local rejected=enemy(13,35,-9)
 function rejected:TakeDamage() return false end
 all={a,b,c,far,outside,rejected}
+do
+    local aim=Vector(100,0)
+    for _,key in ipairs({'q','w','e'}) do
+        local state=Combat.new(0)
+        assert(Combat.cast(state,'r',p,aim,1,nil,items,weapons))
+        local barrage=state.r
+        state.ready[key]=3
+        assert(not Combat.cast(state,key,p,aim,2,nil,items,weapons) and state.r==barrage,
+            'a cooling ability leaves Bullet Time active')
+        local cast,interrupted=Combat.cast(state,key,p,aim,3,nil,items,weapons)
+        assert(cast and interrupted and not state.r and state.ready[key]>3,
+            'a ready ability replaces Bullet Time and starts its cooldown immediately')
+    end
+    local state=Combat.new(0)
+    assert(Combat.cast(state,'r',p,aim,1,nil,items,weapons))
+    local barrage,ready,qReady=state.r,state.ready.r,state.ready.q
+    assert(not Combat.cast(state,'q',p,p.Position,2,nil,items,weapons) and state.r==barrage)
+    assert(not Combat.cast(state,'q',p,aim,2,nil,items,{requestQ=function() return false end})
+        and state.r==barrage and state.ready.q==qReady,'a rejected native request leaves Bullet Time active')
+    assert(not Combat.cast(state,'e',p,nil,2,nil,items,weapons) and state.r==barrage)
+    local cast,interrupted=Combat.cast(state,'r',p,nil,2,nil,items,weapons)
+    assert(not cast and interrupted and not state.r and state.ready.r==ready,
+        'pressing R again only exits Bullet Time')
+end
 local r=Combat.new(0); assert(Combat.cast(r,'r',p,Vector(100,0),1,nil,items,weapons))
 assert(r.r.halfAngle==17,'the hitbox follows the Skin69 Bullet Time indicator half-angle')
 Combat.update(r,p,1,nil,items); Combat.update(r,p,2,nil,items)

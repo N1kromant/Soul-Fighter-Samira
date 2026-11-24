@@ -495,6 +495,10 @@ mod:AddCallback(ModCallbacks.MC_POST_NIGHTMARE_SCENE_RENDER, hideDuringCinematic
 -- Register item damage hooks after the dash guard so a protected dash never
 -- spends an item shield. Items stay native collectibles in the run inventory.
 ControlsSettings.init(mod, Combat, itemPlayer, InventoryHUD.statsSummary, Inventory)
+-- Give Miss Fortune her base damage before the item cache applies its modifiers.
+mod:AddCallback(ModCallbacks.MC_EVALUATE_CACHE, function(_, p, flag)
+    if flag == CacheFlag.CACHE_DAMAGE and MissFortune.is(p) then p.Damage = p.Damage + .60 end
+end)
 Items.init(mod, game, itemPlayer, ControlsSettings.attachToSave, Yone, MissFortune)
 mod:AddCallback(ModCallbacks.MC_EVALUATE_CACHE, function(_, p, flag)
     if not MissFortune.is(p) then return end

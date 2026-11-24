@@ -30,7 +30,7 @@ function RNG()
 end
 Keyboard={KEY_Q=1,KEY_W=2,KEY_E=3,KEY_A=4,KEY_RIGHT=5,KEY_LEFT=6,KEY_UP=7,KEY_DOWN=8,
  KEY_ENTER=9,KEY_LEFT_CONTROL=10,KEY_RIGHT_CONTROL=11,KEY_1=12,KEY_2=13,KEY_3=14,KEY_4=15,KEY_5=16,KEY_6=17,
- KEY_LEFT_SHIFT=18,KEY_RIGHT_SHIFT=19}
+ KEY_LEFT_SHIFT=18,KEY_RIGHT_SHIFT=19,KEY_S=20}
 ButtonAction={ACTION_LEFT=1,ACTION_RIGHT=2,ACTION_UP=3,ACTION_DOWN=4,
  ACTION_SHOOTLEFT=5,ACTION_SHOOTRIGHT=6,ACTION_SHOOTUP=7,ACTION_SHOOTDOWN=8}
 WeaponType={WEAPON_TEARS=1,WEAPON_KNIFE=2}
@@ -76,6 +76,7 @@ local art={}
 local labels={}
 local lines={}
 local nativeLoads={}
+BlendType={ADDITIVE=2}
 local missingClip
 local jokeLoadCallback,danceLoadCallback
 local function rendered(path, name)
@@ -93,10 +94,18 @@ function Sprite(path)
   nativeLoads.lastCallback=callbackName
   if missingClip==path then return nil,false end
  end
+ local blendMode
  return {SetFrame=function(_,name,frame) art[#art+1]={path,name,frame} end,
+   GetLayer=function(_, index)
+     assert(index==0)
+     return {GetBlendMode=function() return {SetMode=function(_,mode) blendMode=mode end} end}
+   end,
    Render=function(self,position)
      local entry=art[#art]
-     if entry then entry.position,entry.rotation,entry.scale,entry.color=position,self.Rotation,self.Scale,self.Color end
+     if entry then
+       entry.position,entry.rotation,entry.scale,entry.color=position,self.Rotation,self.Scale,self.Color
+       entry.blend=blendMode
+     end
    end},true
 end
 TearFlags={TEAR_NORMAL=0}; TearVariant={BLUE=1,BLOOD=2}
@@ -148,7 +157,13 @@ local cache={}; function include(name)
  end
  return cache[name]
 end
-weapons={requests=0,requestQ=function() weapons.requests=weapons.requests+1; return true end,
+weapons={requests=0,stops=0,
+ requestQ=function(_, heading, clock, point, releaseAt, precharge, locked)
+    weapons.requests=weapons.requests+1
+    weapons.q={heading=heading,clock=clock,point=point,releaseAt=releaseAt,precharge=precharge,locked=locked}
+    return true
+ end,
+ stopAttack=function() weapons.stops=weapons.stops+1; weapons.aim=nil end,
  update=function(p,c,a,enabled) weapons.aim=a; weapons.enabled=enabled end,reset=function() end,
  input=function() return weapons.enabled and weapons.aim and weapons.aim.X or 0 end}
 items={newAttack=function(p,k,t) return {kind=k,origin=p.Position} end,onCast=function() end,
@@ -186,23 +201,36 @@ art={}
 assert(call('MC_PRE_TEAR_RENDER',qtear,renderOffset)==false)
 local qBullet=rendered(shotAtlas,'QBullet')
 assert(qBullet and renders(shotAtlas,'QGlow'),'Double Up uses its own source glow and red shell')
+assert(rendered(shotAtlas,'QGlow').blend==BlendType.ADDITIVE and not qBullet.blend,
+ 'only the source light layer of Double Up should use additive blending')
 assert(qBullet.position.X==11 and qBullet.position.Y==4 and qtear.Height==-20,
  'Double Up should join the aiming plane while preserving the camera offset and native tear physics')
 tearContext.kind='aa'; art={}
 assert(call('MC_PRE_TEAR_RENDER',qtear,renderOffset)==false and renders('gfx/mf/projectiles.anm2','Bullet'),
  'ordinary native autoattacks use the same real Skin69 shell mesh as Double Up')
 local aaBullet=rendered('gfx/mf/projectiles.anm2','Bullet')
+local aaGlow=rendered(shotAtlas,'AAGlow')
+local aaLight=rendered(shotAtlas,'AABasicGlow')
 assert(aaBullet.position.X==11 and aaBullet.position.Y==4,'ordinary shots should draw at the same height as Double Up')
-assert(aaBullet.scale.X<qBullet.scale.X and qBullet.scale.X<.6 and renders(shotAtlas,'AATrail')
- and not renders(shotAtlas,'QGlow'),
- 'standard shots use a compact source-colored shell, with a slightly larger Double Up')
+assert(aaBullet.scale.X>=.5 and aaBullet.scale.X<qBullet.scale.X and qBullet.scale.X<=.7
+ and renders(shotAtlas,'AATrail') and aaGlow and aaLight and aaLight.blend==BlendType.ADDITIVE
+ and not aaGlow.blend and not renders(shotAtlas,'QGlow'),
+ 'basic fire uses a readable shell and its authored glow, with a slightly larger Double Up')
 qtear.Velocity=Vector(-4,0); art={}
+tearContext.mfTapPrimary=true
 assert(call('MC_PRE_TEAR_RENDER',qtear,renderOffset)==false)
 local leftBullet=rendered('gfx/mf/projectiles.anm2','Bullet')
 local leftTrail=rendered(shotAtlas,'AATrail')
+local leftGlow=rendered(shotAtlas,'AAGlow')
+local leftLight=rendered(shotAtlas,'AABasicGlow')
 assert(leftBullet.position.Y==aaBullet.position.Y and math.abs(leftTrail.position.Y-leftBullet.position.Y)<.001
  and leftTrail.position.X>leftBullet.position.X and qtear.Velocity.X==-4,
  'a leftward shell and its trail should stay on the horizontal aiming line')
+assert(leftBullet.scale.X==aaBullet.scale.X and leftBullet.scale.Y==aaBullet.scale.Y
+ and table.concat(leftGlow.color,',')==table.concat(aaGlow.color,',')
+ and table.concat(leftLight.color,',')==table.concat(aaLight.color,','),
+ 'shell size and glow must be identical on both sides and independent of Love Tap')
+tearContext.mfTapPrimary=nil
 qtear.TearFlags=1; assert(call('MC_PRE_TEAR_RENDER',qtear,Vector.Zero)==nil)
 TearFlags.TEAR_QUADSPLIT=1<<18
 qtear.TearFlags=TearFlags.TEAR_QUADSPLIT
@@ -252,11 +280,13 @@ assert(packet.clip=='r' and packet.actionFrame==8 and packet.actionId==5
  and packet.mfBarrage.start==5 and packet.mfBarrage.interval==6)
 assert(packet.mfMuzzle.kind=='r' and packet.mfMuzzle.start==5 and packet.mfMuzzle.finish==7 and packet.mfMuzzle.gun==1,
  'the first R wave exports the authored right gun on the shared pose clock')
-assert(renders(shotAtlas,'RCore') and renders(ultimateAtlas,'RTrail')
+assert(renders(shotAtlas,'RCore') and renders(shotAtlas,'RGlow') and renders(ultimateAtlas,'RTrail')
  and renders(ultimateAtlas,'RMuzzle') and renders(ultimateAtlas,'RImpact'),
  'each launched wave uses the R art, and accepted damage plays the R impact')
+assert(rendered(shotAtlas,'RGlow').blend==BlendType.ADDITIVE and not rendered(shotAtlas,'RCore').blend,
+ 'Bullet Time must keep a separately blended light layer behind its shell')
 assert(rendered(ultimateAtlas,'RCone').color[4]<aimingOpacity
- and rendered(ultimateAtlas,'RTrail').scale.Y<.1 and rendered(shotAtlas,'RCore').scale.X<.5,
+ and rendered(ultimateAtlas,'RTrail').scale.Y<.1 and rendered(shotAtlas,'RCore').scale.X>=.5,
  'the R indicator fades during combat while the authored bullet lanes stay narrow')
 local lanes={}
 for _,frame in ipairs(art) do
@@ -1093,6 +1123,56 @@ do
         'a real floor change after the late callback must still recover exactly once')
     call('MC_PRE_GAME_EXIT')
 end
+
+do
+    for _, name in ipairs({Keyboard.KEY_A,Keyboard.KEY_Q,Keyboard.KEY_RIGHT,Keyboard.KEY_S,'mouse1'}) do
+        key(name,false)
+    end
+    held.r=false
+    targets={}
+    player.Position,player.Velocity=Vector(60,100),Vector.Zero
+    player.MaxFireDelay=10
+    call('MC_POST_GAME_STARTED',false)
+    cursor=Vector(280,100); key('mouse1',true); advance(clock+1)
+    assert(intent('ACTION_RIGHT')>0, 'the test needs a movement order before Q')
+    key('mouse1',false)
+
+    local press=clock+1
+    local requests=weapons.requests
+    player.Velocity=Vector(3,0)
+    cursor=Vector(30,100); key(Keyboard.KEY_Q,true); advance(press)
+    local queued=weapons.q
+    assert(weapons.requests==requests+1 and queued.clock==press and queued.point.X==30
+     and queued.heading.X==-1 and queued.precharge and queued.locked,
+        'Q must queue once at key-down with the exact cursor heading and native precharge')
+    assert(player.Velocity:Length()==0 and intent('ACTION_RIGHT')==0 and weapons.enabled,
+        'Q should stop the walk without disabling native weapon preparation')
+    cursor=Vector(420,145); key(Keyboard.KEY_RIGHT,true)
+    advance(queued.releaseAt-1)
+    assert(intent('ACTION_RIGHT')==0 and weapons.requests==requests+1 and weapons.q.point.X==30,
+        'cursor motion and held movement must not steer or interrupt the windup')
+    advance(queued.releaseAt)
+    assert(intent('ACTION_RIGHT')>0 and weapons.requests==requests+1,
+        'movement must resume on time while Q is still held')
+    mf.weaponFired('q',queued.heading,{origin=player.Position},clock)
+    key(Keyboard.KEY_Q,false); key(Keyboard.KEY_RIGHT,false)
+
+    cursor=Vector(280,100); key('mouse1',true); key(Keyboard.KEY_A,true)
+    advance(clock+1)
+    assert(weapons.aim and weapons.aim.X>0,'the test needs an ongoing attack before S')
+    player.Velocity=Vector(3,0)
+    local stopped=weapons.stops
+    key(Keyboard.KEY_S,true); key(Keyboard.KEY_RIGHT,true); advance(clock+1)
+    assert(player.Velocity:Length()==0 and intent('ACTION_RIGHT')==0 and weapons.aim==nil
+     and weapons.stops==stopped+1, 'S must cancel movement and the ongoing attack before a new order')
+    key(Keyboard.KEY_RIGHT,false); key(Keyboard.KEY_S,false); advance(clock+1)
+    assert(intent('ACTION_RIGHT')==0 and weapons.aim==nil, 'held A or RMB must not restore the cancelled order')
+    key('mouse1',false); key(Keyboard.KEY_A,false); advance(clock+1)
+    key(Keyboard.KEY_A,true); advance(clock+1)
+    assert(weapons.aim and weapons.aim.X>0, 'a fresh attack command must still work after S')
+    key(Keyboard.KEY_A,false)
+    call('MC_PRE_GAME_EXIT')
+end
 ''')
 mod = root / 'src/samira-testroom/mod'
 native = mod / 'resources/gfx/mf'
@@ -1119,8 +1199,35 @@ for clip, count in clip_counts.items():
             x, y, w, h = (int(frame.get(key)) for key in ('XCrop', 'YCrop', 'Width', 'Height'))
             assert 0 <= x < x + w <= width and 0 <= y < y + h <= height, (clip, x, y, w, h)
 
+for atlas, names in {
+    'projectiles': {'Bullet', 'Trail'},
+    'shot_effects': {'AAGlow', 'AABasicGlow', 'AATrail', 'AACast', 'QBullet', 'QDud', 'QGlow',
+                     'RCore', 'RGlow', 'RainCore', 'RainStreak', 'RainImpactGlow'},
+    'ultimate_effects': {'RTrail', 'RMuzzle', 'RImpact'},
+}.items():
+    actor = ET.parse(native / f'{atlas}.anm2')
+    sheet = actor.find('./Content/Spritesheets/Spritesheet')
+    with Image.open(native / sheet.get('Path')) as image:
+        alpha = image.convert('RGBA').getchannel('A')
+        for name in names:
+            frame = actor.find(f'./Animations/Animation[@Name="{name}"]/LayerAnimations/LayerAnimation/Frame')
+            assert frame is not None, (atlas, name)
+            x, y, w, h = (int(frame.get(key)) for key in ('XCrop', 'YCrop', 'Width', 'Height'))
+            assert 0 <= x < x + w <= image.width and 0 <= y < y + h <= image.height, (atlas, name)
+            assert alpha.crop((x, y, x + w, y + h)).getbbox(), (atlas, name)
+
 sys.path.insert(0, str(root / 'src/samira/external'))
 from mf_renderer import MissFortuneRenderer
+from mf_muzzle import MuzzleFlashes
+
+muzzle = MuzzleFlashes.__new__(MuzzleFlashes)
+muzzle.canvas = SimpleNamespace(begin=lambda screen: None, flush=lambda: None)
+draws = []
+muzzle._sprite = lambda name, point, direction, sx, sy, alpha: draws.append((name, alpha))
+points = {'right': [10, 20], 'right_forward': [20, 20]}
+for clock in (9, 10, 11, 14):
+    muzzle.draw(dict(clock=clock, screen=[800, 600], mfMuzzle=dict(kind='q', start=10, finish=14)), points)
+assert draws == [('QCast', 1), ('QCast', .75)], 'a stale packet must never render an early or expired flash'
 
 
 class RecordedActor:

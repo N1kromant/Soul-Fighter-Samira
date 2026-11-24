@@ -7,12 +7,12 @@ function Navigation.screenAxes()
 end
 
 function Navigation.worldCursor(room)
-    -- Native mouse samples are viewport pixels; aiming uses the room projection.
-    local raw = Input.GetMousePosition(false)
-    local span = Isaac.ScreenToWorld(Vector(10000, 10000)) - Isaac.ScreenToWorld(Vector.Zero)
-    local scale = Isaac.WorldToScreenDistance(span) * .0001
-    local screen = Vector(raw.X * scale.X, raw.Y * scale.Y)
-    if room:IsMirrorWorld() then screen.X = Isaac.GetScreenWidth() - screen.X end
+    -- Let Isaac account for both the viewport origin and its axis scales.
+    local cursor = Isaac.ScreenToWorld(Input.GetMousePosition(false))
+    if not room:IsMirrorWorld() then return cursor end
+    local screen = Isaac.WorldToScreen(cursor)
+    screen.X = Isaac.GetScreenWidth() - screen.X
+    if Isaac.RenderToWorld then return Isaac.RenderToWorld(screen) end
     local delta, axis = screen - Isaac.WorldToScreen(Vector.Zero), Navigation.screenAxes()
     return Vector(delta.X / axis.X, delta.Y / axis.Y)
 end

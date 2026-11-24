@@ -45,6 +45,37 @@ end
 """
 
 CASES = {
+    "symmetric cursor aiming under an offset viewport": """
+        local navigation = include('samira_navigation')
+        local width, window = 688, Vector.Zero
+        local function project(point)
+            return Vector(point.X*.75+40, point.Y*.5+84)
+        end
+        local function unproject(point)
+            return Vector((point.X-40)/.75, (point.Y-84)/.5)
+        end
+        Isaac.GetScreenWidth = function() return width end
+        Isaac.WorldToScreen = project
+        Isaac.WorldToScreenDistance = function(point) return project(point)-project(Vector.Zero) end
+        Isaac.RenderToWorld = unproject
+        Isaac.ScreenToWorld = function(point) return unproject(Vector(point.X/5+19,point.Y/4-11)) end
+        Input.GetMousePosition = function(world) assert(not world); return window end
+        local function aim(point, mirrored)
+            local screen = project(point)
+            local x = mirrored and width-screen.X or screen.X
+            window = Vector((x-19)*5,(screen.Y+11)*4)
+            room.IsMirrorWorld = function() return mirrored end
+            return navigation.worldCursor(room)
+        end
+        for _, mirror in ipairs({false,true}) do
+            local origin = Vector(260,140)
+            local left, right = Vector(-80,-20), Vector(80,-20)
+            assert(aim(origin+left,mirror):Distance(origin+left)<.001, 'the left cursor missed')
+            assert(aim(origin+right,mirror):Distance(origin+right)<.001, 'the right cursor missed')
+        end
+        Isaac.RenderToWorld = nil
+        assert(aim(Vector(180,120),true):Distance(Vector(180,120))<.001, 'mirror fallback missed')
+    """,
     "scaled native acceleration with turn, stop, knockback and rollback": """
         -- Our usual tick double ignores carried velocity. This regression
         -- explicitly applies both inertia and current input as the engine can.

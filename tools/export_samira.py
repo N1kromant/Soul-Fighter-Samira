@@ -12,6 +12,7 @@ MODULES = ("overlay model bridge layered_surface samira_vfx client_vfx canvas sy
            "mastery_particles yone_combat_audio yone_vfx display_geometry").split()
 YONE_FILES = ("yone.glb", "actions.json", "rig-events.json")
 MF_FILES = ("mf.glb", "actions.json", "rig-events.json")
+MF_MUZZLE_ATLASES = ("shot_effects", "ultimate_effects")
 YONE_AUDIO = (
     "manifest.json", "joke.wav", "taunt.wav", "dance.wav", "dance_loop.wav", "laugh.wav",
     "attack.wav", "attack2.wav", "q.wav", "q3.wav", "w.wav", "e.wav", "e_return.wav", "r.wav", "shield.wav",
@@ -91,6 +92,12 @@ def build(output, *, include_local_yone=False, include_local_mf=False, staging_a
     if include_local_mf:
         for name in MF_FILES:
             copy(mf_assets / name, f"companion/assets/mf-local/{name}")
+        # The renderer first looks inside Companion for its authored muzzle frames.
+        gfx = "src/samira-testroom/mod/resources/gfx/mf"
+        for atlas in MF_MUZZLE_ATLASES:
+            for extension in ("anm2", "png", "provenance.json"):
+                path = f"{gfx}/{atlas}.{extension}"
+                copy(path, f"companion/{path}")
         doll = mf_assets / "taunt-doll"
         if doll.is_dir():
             copy(doll, "companion/assets/mf-local/taunt-doll")

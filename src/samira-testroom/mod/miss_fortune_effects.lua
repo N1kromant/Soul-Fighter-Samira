@@ -7,6 +7,11 @@ local muzzleTracks = include('miss_fortune_muzzle_tracks')
 local particle, ultimateParticle, recallParticle, recallPropParticle, recallPetParticle
 local recallBurstParticle
 local strutParticle, jokeParticle, shotParticle, danceParticle, lifecycleParticle, tauntParticle
+local shotLightParticle, hasBasicGlow
+local additiveShotEffects = {
+    AABasicGlow=true, AACast=true, AACritCast=true, AACritSpark=true,
+    QCast=true, QGlow=true, RGlow=true, RainImpactGlow=true,
+}
 local bounceFrames = 8
 
 function Effects.playSound(cue, volume, loop)
@@ -61,11 +66,21 @@ function Effects.prepareShots()
     if shotParticle == nil and Sprite then
         local candidate, loaded = Sprite('gfx/mf/shot_effects.anm2', true)
         shotParticle = loaded and candidate or false
+        hasBasicGlow = loaded and (not candidate.GetAnimationData or candidate:GetAnimationData('AABasicGlow') ~= nil)
+        if loaded and candidate.GetLayer and BlendType and BlendType.ADDITIVE then
+            local lights, lightsLoaded = Sprite('gfx/mf/shot_effects.anm2', true)
+            local layer = lightsLoaded and lights:GetLayer(0)
+            if layer and layer.GetBlendMode then
+                layer:GetBlendMode():SetMode(BlendType.ADDITIVE)
+                shotLightParticle = lights
+            end
+        end
     end
 end
 
 local function drawShotSprite(name, pos, angle, sx, sy, alpha)
-    return drawSprite(shotParticle, name, pos, angle, sx, sy, Color(1,1,1,alpha))
+    local art = additiveShotEffects[name] and shotLightParticle or shotParticle
+    return drawSprite(art, name, pos, angle, sx, sy, Color(1,1,1,alpha))
 end
 
 function Effects.prepareJoke()
@@ -552,10 +567,15 @@ function Effects.renderTear(tear, offset, kind)
         if not drawShotSprite('AATrail',tailPos,angle,11*size/64,.28*size,.71) then
             trail(tailPos,angle,11*size,.28*size,.64)
         end
-        return shell(pos,angle,.43*size,1)
+        -- AA Front_Glow_Alpha1 from the Skin69 missile graph, behind its mesh.
+        drawShotSprite('AAGlow',pos,angle,.38*size,.30*size,.8)
+        if hasBasicGlow then
+            drawShotSprite('AABasicGlow',pos,angle,.52*size,.40*size,1)
+        end
+        return shell(pos,angle,.53*size,1)
     end
     trail(pos - Vector(9 * size, 0):Rotated(angle), angle, 15 * size, .33 * size, .68)
-    return doubleUpShell(pos,angle,.53*size,1)
+    return doubleUpShell(pos,angle,.64*size,1)
 end
 
 local function drawMuzzle(cue,frame,project,playerPosition,rig)
@@ -594,10 +614,10 @@ local function drawShot(cue, frame, project)
         local length = math.min(19, (hit - from):Length())
         local behind = hit - Vector(length, 0):Rotated(angle)
         if length > 0 then trail((hit + behind) / 2, angle, length, .37, .73) end
-        doubleUpShell(hit,angle,dud and .39 or .53,1,dud)
+        doubleUpShell(hit,angle,dud and .47 or .64,1,dud)
     else
         local alpha = math.min(1, (cue.untilFrame - frame) / 4)
-        if dud then doubleUpShell(to,angle,.36,alpha,true)
+        if dud then doubleUpShell(to,angle,.44,alpha,true)
         elseif cue.hit and not drawShotSprite('QSecondImpact',to,angle,.41,.41,alpha) then
             draw("Impact",to,angle+90,.56,.56,gold(alpha))
         end
@@ -653,7 +673,7 @@ local function drawRain(rain, frame, project)
                     if not drawShotSprite('RainStreak',tail,fall,.37,.32,.88*fade) then
                         draw("Rain",tail,fall,.62,.50,light(fade))
                     end
-                    if not drawShotSprite('RainCore',pos,fall,.38,.38,fade) then shell(pos,fall,.41,fade) end
+                    if not drawShotSprite('RainCore',pos,fall,.46,.46,fade) then shell(pos,fall,.50,fade) end
                 else
                     local point = ground + Vector(0,-4)
                     drawShotSprite('RainImpactGlow',point,0,.47,.32,fade*(1-elapsed/glowFrames))
@@ -728,9 +748,10 @@ local function drawUltimate(wave,frame,project,frameFraction,playerPosition,rig,
         if not drawUltimateEffect('RTrail',middle,angle,length/128,.095,Color(1,.79,.52,.75*alpha)) then
             trail(middle,angle,length,.52,.75*alpha)
         end
-        if not drawShotSprite('RCore',tip,angle,.46,.38,alpha)
-            and not drawUltimateEffect('RBullet',tip,angle,.46,.38,Color(1,.96,.85,alpha)) then
-            shell(tip,angle,.46,alpha)
+        drawShotSprite('RGlow',tip,angle,.36,.28,alpha)
+        if not drawShotSprite('RCore',tip,angle,.55,.46,alpha)
+            and not drawUltimateEffect('RBullet',tip,angle,.55,.46,Color(1,.96,.85,alpha)) then
+            shell(tip,angle,.55,alpha)
         end
     end
 end

@@ -74,18 +74,25 @@ function Combat.grantStrut(s, clock)
     s.lastDamage = math.min(s.lastDamage, clock - 210)
 end
 function Combat.cast(s, key, p, aim, clock, room, items, weapons)
-    if not cooldowns[key] or s.r or clock < (s.ready[key] or 0) then return false end
+    local interrupted = s.r ~= nil
+    if interrupted and key == 'r' then
+        Combat.cancelUltimate(s)
+        return false, true
+    end
+    if not cooldowns[key] or clock < (s.ready[key] or 0) then return false end
     local delta = aim and aim - p.Position
     local directional = key == 'q' or key == 'r'
     local facing = directional and delta and unit(delta)
     if (directional and not facing) or (key == 'e' and not delta) then return false end
+    local releaseAt
     if key == 'q' then
         -- Scale the stock windup with the native attack interval. The weapon
         -- adapter still waits for the actual release of charged weapons.
         local attackInterval = p.MaxFireDelay and p.MaxFireDelay + 1 or baseAttackInterval
         local windup = math.max(2, math.min(24, math.floor(baseQWindup * attackInterval / baseAttackInterval + .5)))
+        releaseAt = clock + windup
         if not weapons or not weapons.requestQ
-            or not weapons.requestQ(p, facing, clock, aim, clock+windup, true) then return false end
+            or not weapons.requestQ(p, facing, clock, copy(aim), releaseAt, true, true) then return false end
     elseif key == 'w' then
         s.wUntil = clock + strutFrames
         Combat.grantStrut(s, clock)
@@ -103,9 +110,10 @@ function Combat.cast(s, key, p, aim, clock, room, items, weapons)
             nextTick=firstWave, interval=barrageInterval, travel=3, range=barrageRange, halfAngle=barrageHalfAngle,
             rays=barrageRays, context=context(items,p,'r',clock)}
     end
+    if interrupted then Combat.cancelUltimate(s) end
     s.ready[key] = clock + cd(items, p, key)
     if items and items.onCast then items.onCast(p, key, clock) end
-    return true
+    return true, interrupted, releaseAt
 end
 -- Preview only: confirmation is performed by acceptHit, never by this callback.
 local function canApplyLoveTap(ctx)
@@ -159,7 +167,7 @@ function Combat.speed(s, clock)
     if elapsed >= 120 then return 1.1 end
     return 1
 end
-function Combat.attackSpeed(s, clock) return s.wUntil and clock < s.wUntil and 1.35 or 1 end
+function Combat.attackSpeed(s, clock) return s.wUntil and clock < s.wUntil and 1.35 or .76 end
 function Combat.strut(s, clock) return math.max(0, math.min(1, ((s.wUntil or clock) - clock) / strutFrames)) end
 function Combat.cancelUltimate(s) s.r = nil end
 function Combat.resetRoom(s)

@@ -118,6 +118,56 @@
         }
       ]
     },
+    "AAGlow": {
+      "effect": "f98fc5e2",
+      "emitter": "Front_Glow_Alpha1",
+      "rgba": [
+        1,
+        0,
+        0,
+        0.4
+      ],
+      "sources": [
+        {
+          "path": "assets/characters/missfortune/skins/skin69/particles/missfortune_skin21_ball32_02.skins_missfortune_skin69.tex",
+          "sha256": "2fa6cddd8d8c090efca12592eb8ede59a093bac613424bf05f78b0dfe784a6af"
+        }
+      ]
+    },
+    "AABasicGlow": {
+      "effect": "f98fc5e2",
+      "emitter": "Glow",
+      "rgba": [
+        0.9367,
+        0.6313,
+        0.2496,
+        0.4
+      ],
+      "sources": [
+        {
+          "path": "assets/characters/missfortune/skins/skin69/particles/missfortune_basicglow.skins_missfortune_skin69.tex",
+          "sha256": "a149b7aa748011e97719db565e46ac379b9d0b934cc8b20f4705e0d933c4e27f",
+          "archive": "PBE MissFortune.wad.client",
+          "archive_sha256": "ec155cda0e61f3cea58d2fb775746b0143d5c12b9d9da80b60618889f4b4d362"
+        }
+      ]
+    },
+    "RGlow": {
+      "effect": "d2d2c9bc",
+      "emitter": "ProjectedLight",
+      "rgba": [
+        1,
+        0.6645,
+        0.1614,
+        0.302
+      ],
+      "sources": [
+        {
+          "path": "assets/characters/missfortune/skins/skin69/particles/3161glow.skins_missfortune_skin69.tex",
+          "sha256": "270f9724771bcf2ecec770255d73b635f954283c4bc678ccc0954eacc7b00c39"
+        }
+      ]
+    },
     "AACast": {
       "effect": "7495d294",
       "emitter": "Flash",

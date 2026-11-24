@@ -109,7 +109,7 @@ def tint(image, rgba):
     return ImageChops.multiply(image, Image.new("RGBA", image.size, color))
 
 
-def shot_effects(archive, hashes):
+def shot_effects(archive, hashes, basic_glow=None):
     images, provenance = {}, {}
 
     def read(stem, extension):
@@ -156,6 +156,21 @@ def shot_effects(archive, hashes):
                ("bullets", "bullets4"), (.519, .296, .142, 1))
     texture_sprite("AATrail", "f98fc5e2", "trail", "missfortune_skin69_trail",
                    (64, 12), (.936, .707, .270, 1))
+    # The AA Glow emitter's BasicGlow texture is absent from the supplied ZIP.
+    # Front_Glow_Alpha1 is an available, separately authored AA emitter.
+    texture_sprite("AAGlow", "f98fc5e2", "Front_Glow_Alpha1", "missfortune_skin21_ball32_02",
+                   (40, 40), (1, 0, 0, .4))
+    if basic_glow:
+        data, source = basic_glow
+        image = decode(data)
+        if image.getchannel("A").getextrema() == (255, 255):
+            image = additive_to_rgba(image)
+        rgba = (.9367, .6313, .2496, .4)
+        images["AABasicGlow"] = tint(crop(image, (40, 40)), rgba)
+        provenance["AABasicGlow"] = {"effect": "f98fc5e2", "emitter": "Glow",
+                                     "rgba": rgba, "sources": [source]}
+    texture_sprite("RGlow", "d2d2c9bc", "ProjectedLight", "3161glow",
+                   (40, 40), (1, .6645, .1614, .302))
     texture_sprite("AACast", "7495d294", "Flash", "missfortune_skin50_ba_flash_sharp_01",
                    (38, 38), (.790, .483, .280, .502))
     texture_sprite("AACritCast", "7c0942a9", "Flash", "missfortune_skin50_ba_flash_sharp_01",
@@ -244,11 +259,31 @@ def write_atlas(images, name, size, default_animation):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("abilities_zip", type=Path)
+    parser.add_argument("--wad", type=Path, help="Optional local PBE MissFortune WAD for the AA Glow texture")
+    parser.add_argument("--shots-only", action="store_true", help="Rebuild only the shot atlas and its provenance")
     args = parser.parse_args()
+    basic_glow = None
+    if args.wad:
+        from import_yone_assets import Wad, archive_hash, wad_hash
+        wad_digest = archive_hash(args.wad)
+        if wad_digest != "ec155cda0e61f3cea58d2fb775746b0143d5c12b9d9da80b60618889f4b4d362":
+            raise ValueError("Unexpected PBE MissFortune WAD SHA-256")
+        path = f"{PARTICLES}missfortune_basicglow{SUFFIX}tex"
+        member = next((item for item in Wad(args.wad, hashes={}).files if item.path_hash == wad_hash(path)), None)
+        if member is None:
+            raise ValueError(f"Missing {path} in PBE WAD")
+        with args.wad.open("rb") as stream:
+            data = member.read_data(stream)
+        digest = sha256(data).hexdigest()
+        if digest != "a149b7aa748011e97719db565e46ac379b9d0b934cc8b20f4705e0d933c4e27f":
+            raise ValueError(f"Unexpected source hash for {path}")
+        basic_glow = data, {"path": path, "sha256": digest,
+                            "archive": "PBE MissFortune.wad.client", "archive_sha256": wad_digest}
     with ZipFile(args.abilities_zip) as archive:
         hashes = json.loads(archive.read("manifest.json"))["assets"]
-        write_atlas(atlas_sprites(archive, hashes), "projectiles", (256, 256), "Bullet")
-        shots, sources = shot_effects(archive, hashes)
+        if not args.shots_only:
+            write_atlas(atlas_sprites(archive, hashes), "projectiles", (256, 256), "Bullet")
+        shots, sources = shot_effects(archive, hashes, basic_glow)
         write_atlas(shots, "shot_effects", (512, 320), "QBullet")
         provenance = {"archive": args.abilities_zip.name, "sha256": sha256(args.abilities_zip.read_bytes()).hexdigest(),
                       "conversion": "SCB side projection and source TEX with emitter tint", "sprites": sources}
@@ -262,5 +297,6 @@ if __name__ == "__main__":
             json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
         # Use the supplied P_Mark_BG layer directly. The graph also references
         # P_Mark and P_Mark01, which are absent from this archive.
-        mark = texture(archive, hashes, "p_mark_bg")
-        write_atlas({"Mark": mark}, "passive", mark.size, "Mark")
+        if not args.shots_only:
+            mark = texture(archive, hashes, "p_mark_bg")
+            write_atlas({"Mark": mark}, "passive", mark.size, "Mark")

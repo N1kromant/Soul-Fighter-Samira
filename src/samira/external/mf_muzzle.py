@@ -80,7 +80,7 @@ class MuzzleFlashes:
         kind, start, finish = cue.get('kind'), cue.get('start'), cue.get('finish')
         if not isinstance(kind, str) or kind not in SPRITES or not _number(start) or not _number(finish) or finish <= start:
             return
-        if clock >= finish:
+        if not start <= clock < finish:
             return
         if kind == 'r':
             gun = cue.get('gun')
@@ -99,7 +99,7 @@ class MuzzleFlashes:
             if not math.isfinite(length) or length <= 1e-9:
                 return
             sockets.append((p, (dx/length, dy/length)))
-        age = max(0., clock - start)
+        age = clock - start
         alpha = max(0., 1 - age / (finish - start))
         if kind == 'r':
             alpha = .88 * max(0., 1 - age / 2)

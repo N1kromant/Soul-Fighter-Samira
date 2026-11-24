@@ -130,7 +130,7 @@ function MF.weaponFired(kind,heading,ctx,clock)
     Emotes.cancel(state.emotes,false)
     if heading and heading:Length()>.001 then state.face=heading:Normalized() end
     if kind=='q' then
-        state.qWindupAt=nil
+        state.qWindupAt,state.qMovementUntil=nil,nil
         animation('q',clock,18,state.face)
         Effects.playBulletSound('q')
         Effects.playSound('Q Voice',.57)
@@ -676,9 +676,19 @@ function MF.init(mod,g,itemModule,inventory,weaponModule,readHudScale,readR,shar
         if room:IsMirrorWorld() then dx=-dx end
         local manual=(dx~=0 or dy~=0) and Vector(dx,dy):Normalized() or nil
         local attack,attackPressed=sampleButton(Keyboard.KEY_A)
+        local stopped=pressed(Keyboard.KEY_S)
+        state.attackStopped=attack and (stopped or state.attackStopped) or nil
+        if state.attackStopped then attack,attackPressed=false,false end
+        if stopped then
+            manual,movePressed=nil,false
+            if allowed then
+                p.Velocity=Vector.Zero
+                if weapons and weapons.stopAttack then weapons.stopAttack(p) end
+            end
+        end
         local right=Input.IsMouseBtnPressed(1)
         local click=right and not state.held.mouse
-        if not allowed then stopMoving()
+        if not allowed or stopped or clock<(state.qMovementUntil or 0) then stopMoving()
         elseif click then
             stopMoving()
             state.target=targetAt(aim)
@@ -694,8 +704,9 @@ function MF.init(mod,g,itemModule,inventory,weaponModule,readHudScale,readR,shar
             local trigger=down[key] and not state.held[key]
             state.held[key]=down[key]
             if allowed and trigger then
-                if state.combat.r then Combat.cancelUltimate(state.combat); animation('r_out',clock,12)
-                elseif Combat.cast(state.combat,key,p,aim,clock,room,items,weapons) then
+                local cast,interrupted,releaseAt=Combat.cast(state.combat,key,p,aim,clock,room,items,weapons)
+                if interrupted then animation('r_out',clock,12) end
+                if cast then
                     if key~='w' then
                         state.face=(aim-p.Position):Length()>.001 and (aim-p.Position):Normalized() or state.face
                     end
@@ -705,6 +716,9 @@ function MF.init(mod,g,itemModule,inventory,weaponModule,readHudScale,readR,shar
                         animation(key,clock,15,state.face)
                     elseif key=='q' then
                         state.combat.muzzle=nil
+                        state.qMovementUntil=releaseAt
+                        stopMoving()
+                        p.Velocity=Vector.Zero
                     end
                     if key=='r' then
                         animation('r_in',clock,state.combat.r.startFrame-clock)
@@ -750,16 +764,20 @@ function MF.init(mod,g,itemModule,inventory,weaponModule,readHudScale,readR,shar
             state.rainSound=nil
         end
         local armed=allowed and not state.combat.r
-        local target=armed and move(p,room,clock,manual,attack) or nil
+        local qMovementLocked=armed and clock<(state.qMovementUntil or 0)
+        if not qMovementLocked then state.qMovementUntil=nil end
+        if qMovementLocked then p.Velocity=Vector.Zero end
+        local target=armed and not qMovementLocked and move(p,room,clock,manual,attack) or nil
         if state.combat.r then state.intent=nil end
-        local shot=armed and (target or attack and aim)
+        local shot=armed and not qMovementLocked and (target or attack and aim)
         if shot and (shot-p.Position):Length()>.001 then state.face=(shot-p.Position):Normalized()
         elseif state.intent and not (state.action and clock<state.action.finish) then state.face=state.intent:Normalized() end
         sampleExpressions(clock,allowed,state.intent~=nil or shot or state.combat.r~=nil
             or state.action and clock<state.action.finish or p.Velocity:Length()>.6)
         if weapons then
             if armed and weapons.trackCursor then weapons.trackCursor(p,aim) end
-            weapons.update(p,clock,shot and state.face or nil,armed,target or aim)
+            local point=not stopped and (target or aim) or nil
+            weapons.update(p,clock,shot and state.face or nil,armed,point)
         end
         local windingUp=armed and weapons and weapons.hasPendingQ and weapons.hasPendingQ(p)
         state.qWindupAt=windingUp and (state.qWindupAt or clock) or nil
@@ -784,15 +802,21 @@ function MF.init(mod,g,itemModule,inventory,weaponModule,readHudScale,readR,shar
         local p=owner(); local ep=entity and entity:ToPlayer()
         if not p or entity and (not ep or ep.Index~=p.Index) or (p.ControllerIndex or 0)~=0 then return end
         local allowed=MF.canUseItems(p) and not (shop and shop.isBlocking())
+        local stopped=pressed(Keyboard.KEY_S)
         if shoot then
-            if allowed and weapons and weapons.input then return weapons.input(p,hook,action) end
+            if allowed and weapons and weapons.input then
+                if not stopped or weapons.hasPendingQ and weapons.hasPendingQ(p) then
+                    return weapons.input(p,hook,action)
+                end
+                if weapons.stopAttack then weapons.stopAttack(p) end
+            end
             return hook==InputHook.GET_ACTION_VALUE and 0 or false
         end
         local value=0
         if allowed and key and not (action==ButtonAction.ACTION_PILLCARD and Emotes.blocksPocket(state.emotes)) then
             if hook==InputHook.IS_ACTION_TRIGGERED then return Input.IsButtonTriggered(key,0) end
             value=pressed(key) and 1 or 0
-        elseif allowed and axis and state.intent then
+        elseif allowed and not stopped and axis and state.intent then
             local intent=items and items.movementInput and items.movementInput(p,state.intent) or state.intent
             value=math.max(0,intent:Dot(axis))
         end
@@ -888,6 +912,7 @@ function MF.init(mod,g,itemModule,inventory,weaponModule,readHudScale,readR,shar
         state.action,state.ackAt,state.emitAt,state.pollAt,state.continuing=nil,nil,nil,nil,nil
         state.ackMuzzle=nil
         state.previewClip,state.movingAt,state.strutMoveAt,state.qWindupAt=nil,nil,nil,nil
+        state.qMovementUntil=nil
         state.idleAt,state.idleAlternate,state.idleIntroAt,state.lastPose=nil,nil,nil,nil
         state.nativeClip=nil
         state.deathRoom=nil

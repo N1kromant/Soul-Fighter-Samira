@@ -141,6 +141,27 @@ assert(not input('IS_ACTION_PRESSED','RIGHT') and Weapons.hasPendingQ(p))
 trigger(); endFrame()
 assert(#announced==1 and announced[1].kind=='q')
 
+p.Position = Vector(0, 0)
+for _, lockAim in ipairs({true, false}) do
+    reset('brimstone', qDelay + 2)
+    assert(Weapons.requestQ(p, Vector(1, 0), ticks, Vector(80, 0), qDelay, true, lockAim))
+    for i = 1, qDelay + 2 do
+        Weapons.trackCursor(p, Vector(0, -80))
+        begin(nil)
+        if i == qDelay + 2 then
+            assert(input('IS_ACTION_PRESSED', lockAim and 'RIGHT' or 'UP'))
+        end
+        weapon.charge = i
+        endFrame()
+    end
+    begin(nil)
+    assert(not input('IS_ACTION_PRESSED', 'RIGHT') and not input('IS_ACTION_PRESSED', 'UP'))
+    trigger(); endFrame()
+    local heading = announced[1].heading
+    assert(heading.X == (lockAim and 1 or 0) and heading.Y == (lockAim and 0 or -1),
+        'only MF keeps her cast direction through the full charge')
+end
+
 for _, mode in ipairs({{kind='tears', charge=0, precharge=true},{kind='brimstone', charge=3}}) do
     reset(mode.kind,mode.charge)
     assert(Weapons.requestQ(p,aim,ticks,nil,qDelay,mode.precharge))
@@ -160,6 +181,21 @@ assert(Weapons.requestQ(p,aim,ticks,nil,qDelay,true))
 begin(nil); weapon.charge=1; endFrame()
 begin(nil,false)
 assert(weapon.charge==0 and not Weapons.hasPendingQ(p),'cancelling the cast clears precharge')
+
+reset('brimstone', 4)
+begin(aim)
+weapon.charge = 2
+Weapons.stopAttack(p)
+assert(weapon.charge == 0 and not input('IS_ACTION_PRESSED', 'RIGHT'))
+endFrame()
+assert(#announced == 0, 'Stop drops an automatic attack and its held charge')
+assert(Weapons.requestQ(p, aim, ticks, nil, ticks + qDelay, true, true))
+begin(nil)
+weapon.charge = 2
+Weapons.stopAttack(p)
+assert(weapon.charge == 2 and Weapons.hasPendingQ(p) and input('IS_ACTION_PRESSED', 'RIGHT'),
+    'Stop leaves an accepted Q and its preparation intact')
+endFrame()
 
 reset('ludo',0)
 local windupOrb=object('TEAR',p)
@@ -479,6 +515,46 @@ event('MC_POST_FIRE_BRIMSTONE', detachedBeam)
 endFrame()
 assert(Weapons.hasPendingQ(p) and #announced == 1 and Weapons.context(p, ref(detachedBeam)) == bombQ,
     'a repeated callback during the next player update still belongs to the original bomb')
+
+local delayedTear, delayedBomb = object('TEAR', p), object('BOMB', p)
+local delayedSplit, unrelatedTear = object('TEAR', p), object('TEAR', p)
+for _, delayed in ipairs({delayedTear, delayedBomb, delayedSplit, unrelatedTear}) do
+    if delayed ~= unrelatedTear then delayed.Parent = launchBomb end
+    delayed.Velocity = Vector(0, 5)
+    local notification = delayed == delayedBomb and 'MC_POST_FIRE_BOMB' or 'MC_POST_FIRE_TEAR'
+    event(notification, delayed)
+    delayed.Parent = nil
+end
+event('MC_POST_FIRE_SPLIT_TEAR', delayedSplit, launchBomb)
+begin(nil)
+event('MC_POST_FIRE_TEAR', delayedTear)
+event('MC_POST_FIRE_BOMB', delayedBomb)
+endFrame()
+assert(Weapons.hasPendingQ(p) and #announced == 1 and attacks == 1)
+event('MC_POST_TEAR_UPDATE', delayedTear)
+for _, delayed in ipairs({delayedTear, delayedBomb, delayedSplit}) do
+    local inherited, _, _, split = Weapons.context(p, ref(delayed))
+    assert(inherited == bombQ and split == (delayed == delayedSplit) and delayed.Velocity.Y == 5,
+        'a detached carrier retains its volley and travels along its native heading')
+end
+assert(delayedTear.Scale == 1.18 and delayedBomb.SpriteScale.X == 1.12
+    and delayedSplit.Scale == 1.18 and delayedSplit.data.SamiraItemTaggedSplit and not delayedSplit.TearFlags,
+    'split classification arrives before normal tear modifiers, and callbacks scale each output once')
+assert(not Weapons.context(p, ref(unrelatedTear)) and unrelatedTear.Scale == 1,
+    'mere ownership does not associate a tear with an earlier volley')
+local staleTear = object('TEAR', launchBomb)
+event('MC_POST_FIRE_TEAR', staleTear)
+begin(nil)
+local freshBomb = object('BOMB', p)
+weapon.entity = delayedBomb
+event('MC_POST_FIRE_BOMB', freshBomb)
+trigger(p, Vector(1, 0))
+endFrame()
+assert(#announced == 2 and attacks == 2 and Weapons.context(p, ref(freshBomb)) == announced[2].ctx
+    and Weapons.context(p, ref(delayedBomb)) == bombQ and delayedBomb.SpriteScale.X == 1.12,
+    'a genuine new discharge claims its fresh output and preserves the previously inherited handle')
+Weapons.reset()
+assert(not Weapons.context(p, ref(staleTear)) and staleTear.Scale == 1)
 
 for _, kind in ipairs({'sword', 'bone', 'axe'}) do
     reset(kind, 0)
