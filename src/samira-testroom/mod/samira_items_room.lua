@@ -13,7 +13,7 @@ local game, getPlayer, runtime
 local byCollectible, byRiotId, entries
 local font, colors
 local pageOverride, pageKeyDown, cardsHidden
-local checkedRoom
+local checkedRoom, restockSnapshot, pendingRefresh
 local eidHidden = {}
 local cardLayouts = {}
 
@@ -218,11 +218,84 @@ local function restoreStock(room, player, state)
     state.stocked = keep
 end
 
+local function stockSnapshot()
+    local room = game:GetRoom()
+    if room:GetType() ~= RoomType.ROOM_SHOP or game:IsGreedMode() or not getPlayer() then return end
+    local state = roomState()
+    if not state.stocked then return end
+    loadCatalog()
+    local offers = {}
+    for _, entity in ipairs(Isaac.FindByType(pickupType, collectibleVariant, -1, false, false)) do
+        local pickup = entity:ToPickup()
+        local key = tostring(pickup.InitSeed)
+        local entry = byCollectible[pickup.SubType]
+        if entry and entry.item.component and state.stocked[key] == pickup.SubType and pickup:IsShopItem() then
+            offers[#offers + 1] = {entry = entry, key = key, index = pickup.Index,
+                position = pickup.Position, slot = pickup.ShopItemId}
+        end
+    end
+    if #offers > 0 then
+        table.sort(offers, function(a, b) return a.slot < b.slot end)
+        return {state = state, offers = offers}
+    end
+end
+
+local function refreshStock(batch, room, player)
+    local state, pickups = batch.state, Isaac.FindByType(pickupType, -1, -1, false, false)
+    local positions, slots, previous, replaced, reserved = {}, {}, {}, {}, {}
+    for _, offer in ipairs(batch.offers) do
+        if state.stocked[offer.key] == offer.entry.id then
+            local current
+            for _, entity in ipairs(pickups) do
+                local pickup = entity:ToPickup()
+                -- In-place morphing can change the variant. A restock can replace the entity entirely.
+                if pickup.Position:Distance(offer.position) < 1 and (pickup.ShopItemId == offer.slot
+                    or pickup.Index == offer.index or tostring(pickup.InitSeed) == offer.key) then
+                    current = pickup
+                    break
+                end
+            end
+            local unchanged = current and current.Variant == collectibleVariant and current.SubType == offer.entry.id
+                and current.ShopItemId == offer.slot and tostring(current.InitSeed) == offer.key and current:IsShopItem()
+            if batch.full or not unchanged then
+                replaced[#replaced + 1] = offer
+                positions[#positions + 1], slots[#slots + 1] = offer.position, offer.slot
+                previous[#replaced] = current
+            end
+            reserved[offer.entry.id] = true
+        end
+    end
+    if #replaced == 0 then return true end
+
+    local serial = (state.refreshCount or 0) + 1
+    local seed = (room:GetSpawnSeed() + serial * 104729) % 2147483647
+    local selected = shopInventory(seed, player, #replaced, reserved) or {}
+    -- A restricted profile can have no additional components. Reuse the rotating stock in that case.
+    for _, offer in ipairs(replaced) do
+        if #selected == #replaced then break end
+        selected[#selected + 1] = offer.entry
+    end
+    for i = 1, #replaced do
+        if #selected > 1 and selected[i].id == replaced[i].entry.id then
+            local j = i == #selected and 1 or i + 1
+            selected[i], selected[j] = selected[j], selected[i]
+        end
+    end
+    local spawned = spawn(selected, positions, slots)
+    if not spawned then return false end
+    for _, pickup in pairs(previous) do pickup:Remove() end
+    for _, offer in ipairs(replaced) do state.stocked[offer.key] = nil end
+    for _, pickup in ipairs(spawned) do state.stocked[tostring(pickup.InitSeed)] = pickup.SubType end
+    state.refreshCount = serial
+    return true
+end
+
 local function updateShop()
     local player = getPlayer()
     if not player then return end
     local room = game:GetRoom()
     if room:GetType() ~= RoomType.ROOM_SHOP or not room:IsClear() or game:IsGreedMode() then return end
+    if pendingRefresh and refreshStock(pendingRefresh, room, player) then pendingRefresh = nil end
     local key = roomKey()
     if checkedRoom == key then return end
     loadCatalog()
@@ -483,6 +556,30 @@ function RoomItems.init(mod, ownerGame, playerProvider, itemRuntime)
     game, getPlayer = ownerGame, playerProvider
     runtime = itemRuntime or include('samira_items')
     mod:AddCallback(ModCallbacks.MC_EXECUTE_CMD, execute)
+    if ModCallbacks.MC_PRE_RESTOCK_SHOP and ModCallbacks.MC_POST_RESTOCK_SHOP then
+        mod:AddCallback(ModCallbacks.MC_PRE_RESTOCK_SHOP, function(_, partial)
+            if not partial then restockSnapshot = pendingRefresh or stockSnapshot() end
+        end)
+        mod:AddCallback(ModCallbacks.MC_POST_RESTOCK_SHOP, function(_, partial)
+            if not partial and restockSnapshot then
+                pendingRefresh = restockSnapshot
+                pendingRefresh.full = true
+                restockSnapshot = nil
+            end
+        end)
+    end
+    if ModCallbacks.MC_PRE_USE_ITEM and CollectibleType and CollectibleType.COLLECTIBLE_D6 then
+        mod:AddCallback(ModCallbacks.MC_PRE_USE_ITEM, function()
+            pendingRefresh = pendingRefresh or stockSnapshot()
+        end, CollectibleType.COLLECTIBLE_D6)
+    end
+    if ModCallbacks.MC_POST_PICKUP_SHOP_PURCHASE then
+        mod:AddCallback(ModCallbacks.MC_POST_PICKUP_SHOP_PURCHASE, function(_, pickup)
+            if game:GetRoom():GetType() ~= RoomType.ROOM_SHOP then return end
+            local state, key = roomState(), tostring(pickup.InitSeed)
+            if state.stocked then state.stocked[key] = nil end
+        end, collectibleVariant)
+    end
     mod:AddCallback(ModCallbacks.MC_POST_UPDATE, function()
         updateShop()
         if next(eidHidden) and not getPlayer() then
@@ -491,10 +588,12 @@ function RoomItems.init(mod, ownerGame, playerProvider, itemRuntime)
     end)
     mod:AddCallback(ModCallbacks.MC_POST_NEW_ROOM, function()
         eidHidden = {}
+        restockSnapshot, pendingRefresh = nil, nil
         checkedRoom, pageOverride, pageKeyDown, cardsHidden = nil, nil, nil, nil
     end)
     mod:AddCallback(ModCallbacks.MC_POST_GAME_STARTED, function()
         eidHidden = {}
+        restockSnapshot, pendingRefresh = nil, nil
         checkedRoom, pageOverride, pageKeyDown, cardsHidden = nil, nil, nil, nil
     end)
     Console.RegisterCommand('samiraitems', 'Spawn a page of Samira collectibles', 'samiraitems [page]', false, AutocompleteType.NONE)

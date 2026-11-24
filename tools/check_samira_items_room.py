@@ -32,7 +32,9 @@ lua.globals().sources = lua.table_from(source)
 lua.globals().texture_exists = lambda path: (MOD / 'resources' / path).is_file()
 lua.execute(r'''
 function include(name) return assert(load(sources[name], name))() end
-ModCallbacks = {MC_POST_UPDATE = 1, MC_POST_NEW_ROOM = 2, MC_EXECUTE_CMD = 3, MC_POST_GAME_STARTED = 4}
+ModCallbacks = {MC_POST_UPDATE = 1, MC_POST_NEW_ROOM = 2, MC_EXECUTE_CMD = 3, MC_POST_GAME_STARTED = 4,
+    MC_PRE_RESTOCK_SHOP = 5, MC_POST_RESTOCK_SHOP = 6, MC_PRE_USE_ITEM = 7, MC_POST_PICKUP_SHOP_PURCHASE = 9}
+CollectibleType = {COLLECTIBLE_D6 = 105}
 EntityType = {ENTITY_PICKUP = 5, ENTITY_PLAYER = 1, ENTITY_EFFECT = 1000}
 PickupVariant = {PICKUP_COLLECTIBLE = 100, PICKUP_HEART = 10, PICKUP_COIN = 20, PICKUP_KEY = 30,
     PICKUP_BOMB = 40, PICKUP_LIL_BATTERY = 90, PICKUP_PILL = 70, PICKUP_TAROTCARD = 300,
@@ -140,7 +142,7 @@ Isaac = {
     FindByType = function(typ, variant)
         local found = {}
         for _, e in ipairs(roomEntities()) do
-            if e.Type == typ and e.Variant == variant then found[#found + 1] = e end
+            if e.Type == typ and (variant == -1 or e.Variant == variant) then found[#found + 1] = e end
         end
         return found
     end,
@@ -330,6 +332,80 @@ assert(#roomEntities() == 2 and oldItem.removed and legacy.Price == byId[legacy.
     and not legacy.removed)
 for _, pickup in ipairs(roomEntities()) do assert(byId[pickup.SubType].component) end
 assert(not shops['shop:6'].stocked['already bought'], 'restocked a previously purchased sale')
+
+enter(9)
+entities = {}
+local nativeOffer, nativeHeart = fakeVanilla()
+update()
+local function componentOffers()
+    local offers = {}
+    for _, pickup in ipairs(roomEntities()) do
+        if byId[pickup.SubType] and byId[pickup.SubType].component then
+            offers[#offers + 1] = pickup
+        end
+    end
+    return offers
+end
+local stock = componentOffers()
+local purchased, missing = stock[1], stock[2]
+if callbacks[9] then callbacks[9](mod, purchased) end
+purchased:Remove()
+missing:Remove()
+if callbacks[5] then callbacks[5](mod, true) end
+if callbacks[6] then callbacks[6](mod, true) end
+assert(#componentOffers() == 4 and not stock[3].removed, 'purchase restock refreshed League offers')
+local originalIds, originalPositions = {}, {}
+if callbacks[5] then callbacks[5](mod, false) end
+for i = 3, 6 do
+    local pickup = stock[i]
+    originalIds[pickup.SubType], originalPositions[pickup.ShopItemId] = true, pickup.Position
+    pickup:Remove()
+    if i == 3 then
+        local nativeReplacement = entity(5, 100, 37, pickup.Position, 15)
+        nativeReplacement.ShopItemId = pickup.ShopItemId
+    end
+end
+nativeOffer.SubType = 38
+if callbacks[6] then callbacks[6](mod, false) end
+spawnFailureAt = spawnedCount + 2
+update()
+assert(#componentOffers() == 0 and #roomEntities() == 3, 'failed restock partially changed the room')
+spawnFailureAt = nil
+update()
+local refreshed = componentOffers()
+assert(#refreshed == 4 and #roomEntities() == 6, 'full native restock lost League offers or reused a purchased slot')
+local refreshedIds = {}
+for _, pickup in ipairs(refreshed) do
+    assert(not originalIds[pickup.SubType] and not refreshedIds[pickup.SubType])
+    assert(originalPositions[pickup.ShopItemId]:Distance(pickup.Position) == 0)
+    assert(pickup.Price == byId[pickup.SubType].price and not pickup.AutoUpdatePrice)
+    refreshedIds[pickup.SubType] = true
+end
+assert(not nativeOffer.removed and nativeOffer.SubType == 38 and not nativeHeart.removed)
+visit = false
+enter(9)
+update()
+assert(#componentOffers() == 4 and not refreshed[1].removed)
+
+local rerolled, unchanged, boughtDuringReroll = refreshed[1], refreshed[2], refreshed[3]
+local rerolledSlot, rerolledId = rerolled.ShopItemId, rerolled.SubType
+if callbacks[7] then callbacks[7](mod, 105) end
+rerolled.Variant, rerolled.SubType = 10, 1
+rerolled.ShopItemId, rerolled.InitSeed = -1, rerolled.InitSeed + 10000
+if callbacks[9] then callbacks[9](mod, boughtDuringReroll) end
+boughtDuringReroll:Remove()
+update()
+assert(#componentOffers() == 3 and rerolled.removed and not unchanged.removed)
+for _, pickup in ipairs(componentOffers()) do
+    if pickup.ShopItemId == rerolledSlot then assert(pickup.SubType ~= rerolledId) end
+end
+if callbacks[5] then callbacks[5](mod, false) end
+if callbacks[6] then callbacks[6](mod, false) end
+enter(10)
+entities = {}
+local untouchedShopOffer = fakeVanilla()
+update()
+assert(#componentOffers() == 0 and not untouchedShopOffer.removed, 'restock snapshot leaked into a new room')
 
 -- Profile filtering affects newly generated bonus offers, not native stock,
 -- and persisted bonus offers survive later predicate changes.
