@@ -639,6 +639,7 @@ function MF.init(mod,g,itemModule,inventory,weaponModule,readHudScale,readR,shar
         local death=deathAnimating(p)
         local dead=p:IsDead() or death
         local allowed=not dead and MF.canUseItems(p) and not (shop and shop.isBlocking())
+        if allowed then state.arrivalSeed=nil end
         if dead then
             if not state.awaitingRevive then
                 state.action=nil
@@ -891,22 +892,29 @@ function MF.init(mod,g,itemModule,inventory,weaponModule,readHudScale,readR,shar
         state.nativeClip=nil
         state.deathRoom=nil
     end
-    mod:AddCallback(ModCallbacks.MC_PRE_CHANGE_ROOM,function()
-        if state then state.leaving=true; state.departureSeed=game:GetRoom():GetSpawnSeed(); resetRoom() end
-    end)
+    local function beginDeparture(toFloor)
+        if not state then return end
+        local seed=game:GetRoom():GetSpawnSeed()
+        -- A late exit can see the already loaded destination. Keep its
+        -- arrival valid until the player has resumed control in that room.
+        if state.arrivalSeed==seed then return end
+        if not state.leaving then
+            resetRoom()
+            state.leaving,state.departureSeed,state.floorArrived=true,seed,nil
+        end
+        if toFloor then state.floorRebinding=true end
+    end
+    mod:AddCallback(ModCallbacks.MC_PRE_CHANGE_ROOM,function() beginDeparture(false) end)
     mod:AddCallback(ModCallbacks.MC_POST_NEW_ROOM,function()
         if not state then return end
         resetRoom()
+        state.arrivalSeed=game:GetRoom():GetSpawnSeed()
         if state.floorRebinding then state.floorArrived=true
         else state.leaving=nil; state.room=state.room+1 end
     end)
     if ModCallbacks.MC_PRE_ROOM_EXIT then
         mod:AddCallback(ModCallbacks.MC_PRE_ROOM_EXIT,function(_,p,newLevel)
-            if state and newLevel and MF.is(p) then
-                resetRoom()
-                state.leaving,state.floorRebinding=true,true
-                state.departureSeed=game:GetRoom():GetSpawnSeed()
-            end
+            if newLevel and MF.is(p) then beginDeparture(true) end
         end)
     end
     mod:AddCallback(ModCallbacks.MC_POST_NEW_LEVEL,function()
@@ -914,6 +922,8 @@ function MF.init(mod,g,itemModule,inventory,weaponModule,readHudScale,readR,shar
             resetRoom()
             state.special.homeguardReady=true
             if state.leaving then state.floorArrived=true end
+            local seed=game:GetRoom():GetSpawnSeed()
+            if not state.leaving or seed~=state.departureSeed then state.arrivalSeed=seed end
         end
     end)
     if Console and Console.RegisterCommand and ModCallbacks.MC_EXECUTE_CMD then
@@ -938,7 +948,7 @@ function MF.init(mod,g,itemModule,inventory,weaponModule,readHudScale,readR,shar
             if not MF.isNative(p) then testMode=true end
             if state then
                 resetRoom()
-                state.leaving,state.floorRebinding,state.floorArrived=nil,nil,nil
+                state.leaving,state.floorRebinding,state.floorArrived,state.arrivalSeed=nil,nil,nil,nil
                 state.room=state.room+1
                 if weapons and weapons.reset then weapons.reset() end
             else start(p,true) end

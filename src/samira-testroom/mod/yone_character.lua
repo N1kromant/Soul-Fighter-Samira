@@ -820,6 +820,7 @@ function Yone.init(mod, game, items, inventory, inventoryBounds, display, readHu
                     end
                     state.floorPending, state.floorRoomArrived, state.floorLevelArrived = nil, nil, nil
                     state.floorReadyTicks, state.floorReadyFrame = nil, nil
+                    state.floorArrivalSeed = nil
                     state.staleTransitionMode = transitioning or nil
                 end
             else
@@ -995,12 +996,21 @@ function Yone.init(mod, game, items, inventory, inventoryBounds, display, readHu
         end
     end)
 
+    local function roomSeed()
+        local room = game:GetRoom()
+        return room.GetSpawnSeed and room:GetSpawnSeed() or nil
+    end
+
+    local function isLateDeparture()
+        -- The engine can report an old exit after loading the destination.
+        return state.floorArrivalSeed ~= nil and roomSeed() == state.floorArrivalSeed
+    end
+
     local function beginDeparture(player)
         if state.leaving then return end
-        state.staleTransitionMode, state.floorRecovered = nil, nil
+        state.staleTransitionMode, state.floorRecovered, state.floorArrivalSeed = nil, nil, nil
         state.leaving, state.ackAt = true, nil
-        local room = game:GetRoom()
-        state.departureRoomSeed = room.GetSpawnSeed and room:GetSpawnSeed() or nil
+        state.departureRoomSeed = roomSeed()
         state.debugCommands, state.debugAnimation = nil, nil
         stopSpiritWarning(state)
         stopMoving(state)
@@ -1012,11 +1022,11 @@ function Yone.init(mod, game, items, inventory, inventoryBounds, display, readHu
 
     mod:AddCallback(ModCallbacks.MC_PRE_CHANGE_ROOM, function()
         local player = state and driver()
-        if player then beginDeparture(player) end
+        if player and not isLateDeparture() then beginDeparture(player) end
     end)
 
     mod:AddCallback(ModCallbacks.MC_PRE_ROOM_EXIT, function(_, player, newLevel)
-        if state and newLevel and Yone.is(player) then
+        if state and newLevel and Yone.is(player) and not isLateDeparture() then
             state.floorPending = true
             state.floorRebinding = true
             beginDeparture(player)
@@ -1028,6 +1038,7 @@ function Yone.init(mod, game, items, inventory, inventoryBounds, display, readHu
         state.room = state.room + 1
         state.leaving, state.ackAt, state.emitAt, state.pollAt = nil, nil, nil, nil
         state.departureRoomSeed, state.floorRoomArrived, state.floorReadyTicks = nil, nil, nil
+        state.floorArrivalSeed = nil
         state.staleTransitionMode, state.floorReadyFrame, state.floorRecovered = nil, nil, nil
         state.coverFrame, state.hurtUntil = nil, nil
         state.continuingRoom = nil
@@ -1042,7 +1053,12 @@ function Yone.init(mod, game, items, inventory, inventoryBounds, display, readHu
         -- On a floor change this arrives before POST_NEW_LEVEL. Keep the old
         -- scene hidden while the new player and room are being bound.
         if not state then return end
-        if state.floorPending then state.floorRoomArrived = true else enterRoom() end
+        if state.floorPending then
+            state.floorRoomArrived = true
+            state.floorArrivalSeed = roomSeed()
+        else
+            enterRoom()
+        end
     end)
 
     mod:AddCallback(ModCallbacks.MC_POST_NEW_LEVEL, function()
@@ -1051,6 +1067,7 @@ function Yone.init(mod, game, items, inventory, inventoryBounds, display, readHu
         if state.floorPending or state.leaving then enterRoom() end
         state.floorPending, state.floorRoomArrived, state.floorReadyTicks, state.coverFrame = nil, nil, nil, nil
         state.floorRebinding, state.floorLevelArrived = true, true
+        state.floorArrivalSeed = roomSeed()
     end)
 
     Debug.init(mod, function(enable)

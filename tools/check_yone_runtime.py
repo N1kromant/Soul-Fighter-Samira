@@ -993,10 +993,15 @@ local mode = 1
 RoomTransition.GetTransitionMode = function() return mode end
 event('PRE_ROOM_EXIT', player, true)
 seed = 103
+player.ControlsEnabled = false
 event('POST_NEW_ROOM')
 event('POST_NEW_LEVEL')
+tick()
+local arrivalSeq = packet.seq
 event('PRE_CHANGE_ROOM')
-player.ControlsEnabled = false
+assert(packet.seq == arrivalSeq, 'late PRE_CHANGE_ROOM restarted a confirmed floor arrival')
+event('PRE_ROOM_EXIT', player, true)
+assert(packet.seq == arrivalSeq, 'late PRE_ROOM_EXIT restarted a confirmed floor arrival')
 for _ = 1, 10 do tick() end
 assert(packet.transition and packet.occluded, 'floor camera opened before the player regained controls')
 player.ControlsEnabled = true
@@ -1012,7 +1017,14 @@ tick()
 mode = 1
 event('PRE_CHANGE_ROOM')
 assert(packet.transition and packet.occluded, 'the next real transition did not hide Yone')
+event('PRE_ROOM_EXIT', player, true)
+seed = 104
+event('POST_NEW_ROOM')
+event('POST_NEW_LEVEL')
 RoomTransition.GetTransitionMode = transitionMode
+for _ = 1, 3 do tick() end
+assert(packet.session == recoveredSession and packet.room == recoveredRoom + 4
+    and not packet.transition and not packet.occluded, 'the next real floor departure did not recover exactly once')
 player.ControlsEnabled = nil
 event('PRE_GAME_EXIT')
 

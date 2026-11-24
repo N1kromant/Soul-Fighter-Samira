@@ -186,16 +186,23 @@ art={}
 assert(call('MC_PRE_TEAR_RENDER',qtear,renderOffset)==false)
 local qBullet=rendered(shotAtlas,'QBullet')
 assert(qBullet and renders(shotAtlas,'QGlow'),'Double Up uses its own source glow and red shell')
-assert(qBullet.position.X==12 and qBullet.position.Y==-8 and qtear.Height==-20,
- 'Double Up should draw lower while preserving render offsets and native tear physics')
+assert(qBullet.position.X==11 and qBullet.position.Y==4 and qtear.Height==-20,
+ 'Double Up should join the aiming plane while preserving the camera offset and native tear physics')
 tearContext.kind='aa'; art={}
 assert(call('MC_PRE_TEAR_RENDER',qtear,renderOffset)==false and renders('gfx/mf/projectiles.anm2','Bullet'),
  'ordinary native autoattacks use the same real Skin69 shell mesh as Double Up')
 local aaBullet=rendered('gfx/mf/projectiles.anm2','Bullet')
-assert(aaBullet.position.X==12 and aaBullet.position.Y==-8,'ordinary shots should draw at the same height as Double Up')
+assert(aaBullet.position.X==11 and aaBullet.position.Y==4,'ordinary shots should draw at the same height as Double Up')
 assert(aaBullet.scale.X<qBullet.scale.X and qBullet.scale.X<.6 and renders(shotAtlas,'AATrail')
  and not renders(shotAtlas,'QGlow'),
  'standard shots use a compact source-colored shell, with a slightly larger Double Up')
+qtear.Velocity=Vector(-4,0); art={}
+assert(call('MC_PRE_TEAR_RENDER',qtear,renderOffset)==false)
+local leftBullet=rendered('gfx/mf/projectiles.anm2','Bullet')
+local leftTrail=rendered(shotAtlas,'AATrail')
+assert(leftBullet.position.Y==aaBullet.position.Y and math.abs(leftTrail.position.Y-leftBullet.position.Y)<.001
+ and leftTrail.position.X>leftBullet.position.X and qtear.Velocity.X==-4,
+ 'a leftward shell and its trail should stay on the horizontal aiming line')
 qtear.TearFlags=1; assert(call('MC_PRE_TEAR_RENDER',qtear,Vector.Zero)==nil)
 TearFlags.TEAR_QUADSPLIT=1<<18
 qtear.TearFlags=TearFlags.TEAR_QUADSPLIT
@@ -1051,6 +1058,41 @@ art={}; advance(qAt+2)
 assert(packet.mfMuzzle and #castArt('QCast')==1,'a live renderer without muzzle support keeps the native flash')
 lease=nil
 call('MC_PRE_GAME_EXIT')
+
+do
+    -- A departure callback can arrive after the destination has already loaded.
+    room.index, room.seed = 4, 201
+    player.ControlsEnabled = true
+    call('MC_POST_GAME_STARTED',false)
+    advance(clock+1)
+    local session, scene = packet.session, packet.room
+    player.ControlsEnabled = false
+    room.seed = 202
+    call('MC_POST_NEW_ROOM')
+    call('MC_POST_NEW_LEVEL')
+    call('MC_PRE_CHANGE_ROOM')
+    call('MC_PRE_ROOM_EXIT',player,true)
+    advance(clock+1)
+    player.ControlsEnabled = true
+    advance(clock+1)
+    assert(packet.active and packet.session==session and packet.room==scene+1 and not packet.transition,
+        'a late departure on the destination floor must recover in the same session with one scene change')
+
+    -- A real departure from this floor must still begin the next transition.
+    player.ControlsEnabled = false
+    call('MC_PRE_ROOM_EXIT',player,true)
+    advance(clock+1)
+    assert(packet.session==session and packet.room==scene+1 and packet.transition,
+        'the next real departure was mistaken for the preceding late callback')
+    room.seed = 203
+    call('MC_POST_NEW_LEVEL')
+    call('MC_POST_NEW_ROOM')
+    player.ControlsEnabled = true
+    advance(clock+1)
+    assert(packet.active and packet.session==session and packet.room==scene+2 and not packet.transition,
+        'a real floor change after the late callback must still recover exactly once')
+    call('MC_PRE_GAME_EXIT')
+end
 ''')
 mod = root / 'src/samira-testroom/mod'
 native = mod / 'resources/gfx/mf'

@@ -8,7 +8,6 @@ local particle, ultimateParticle, recallParticle, recallPropParticle, recallPetP
 local recallBurstParticle
 local strutParticle, jokeParticle, shotParticle, danceParticle, lifecycleParticle, tauntParticle
 local bounceFrames = 8
-local bulletHeightScale = .55
 
 function Effects.playSound(cue, volume, loop)
     if not SFXManager or not Isaac.GetSoundIdByName then return end
@@ -536,15 +535,16 @@ end
 function Effects.renderTear(tear, offset, kind)
     if not sprite() then return false end
     local project = Isaac.WorldToRenderPosition
-    -- Keep the launch at its original height, then lower the rendered arc.
-    -- The engine still owns the tear height, flight time and collisions.
+    local ground = project(tear.Position)
+    local lifted = project(tear.Position + Vector(0, tear.Height or 0))
+    if tear.PositionOffset then lifted = lifted + tear.PositionOffset end
+    if tear.SpriteOffset then lifted = lifted + tear.SpriteOffset end
+    -- Keep the native launch pose, then bring the shell onto the aiming plane.
+    -- The render callback offset belongs to the camera, so keep it at all ages.
     local flight = math.min(1, (tear.FrameCount or 0) / 3)
-    local height = (tear.Height or 0) * (1 - (1 - bulletHeightScale) * flight)
-    local pos = project(tear.Position + Vector(0, height))
+    local pos = lifted + (ground - lifted) * flight
     if offset then pos = pos + offset end
-    if tear.PositionOffset then pos = pos + tear.PositionOffset end
-    if tear.SpriteOffset then pos = pos + tear.SpriteOffset end
-    local face = project(tear.Position + tear.Velocity) - project(tear.Position)
+    local face = project(tear.Position + tear.Velocity) - ground
     local angle = face:GetAngleDegrees()
     local size = math.min(2, math.max(.65, tear.Scale or 1))
     if kind == 'aa' then
