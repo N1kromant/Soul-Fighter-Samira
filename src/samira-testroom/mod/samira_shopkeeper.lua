@@ -1,5 +1,4 @@
 local Shopkeeper = {}
-local Navigation = include('samira_navigation')
 local browser, game, owner, available
 local keeper, icon
 local anchor, roomSeed
@@ -12,10 +11,26 @@ local function screen(room, point)
     return result
 end
 
+local function mousePosition()
+    -- Keep the viewport origin when converting the cursor from client pixels.
+    return Isaac.WorldToScreen(Isaac.ScreenToWorld(Input.GetMousePosition(false)))
+end
+
 local function shopRoom()
     if not Isaac.IsInGame() then return end
     local room = game:GetRoom()
-    if room:GetType() == RoomType.ROOM_SHOP and room:IsClear() then return room end
+    if room:GetType() == RoomType.ROOM_SHOP then return room end
+end
+
+local function canShop(room, player)
+    return room and room:IsClear() and player and available(player)
+end
+
+local function traceClick(result, pointer, position)
+    if not Isaac.DebugString then return end
+    local coordinates = pointer and string.format(' cursor=(%.1f,%.1f) vendor=(%.1f,%.1f)',
+        pointer.X, pointer.Y, position.X, position.Y) or ''
+    Isaac.DebugString('[Soul Fighter shop] RMB ' .. result .. coordinates)
 end
 
 local function reservePositions(room, player)
@@ -63,9 +78,19 @@ local function sprite(path, animation, scale)
     return value
 end
 
-local function hit(pointer, position)
-    return math.abs(pointer.X - position.X) <= 36
-        and pointer.Y >= position.Y - 63 and pointer.Y <= position.Y + 6
+local function hit(pointer, position, halfWidth, height)
+    local delta = pointer - position
+    return math.abs(delta.X) <= halfWidth and delta.Y >= -height and delta.Y <= 7
+end
+
+local function hoveredVendor(room, pointer, position)
+    if hit(pointer, position, 48 * modelScale + 4, 92 * modelScale + 4) then return position end
+    for _, entity in ipairs(Isaac.GetRoomEntities()) do
+        if entity.Type == EntityType.ENTITY_SHOPKEEPER then
+            local native = screen(room, entity.Position)
+            if hit(pointer, native, 22, 34) then return native end
+        end
+    end
 end
 
 local function resetRoom()
@@ -91,15 +116,28 @@ local function sampleInput()
     if not rightClick and not leftClick then return end
 
     local room, player = shopRoom(), owner()
-    if not room or not player or not available(player) then return end
+    if not canShop(room, player) then
+        if room and rightClick then
+            traceClick(not room:IsClear() and 'room not clear' or 'player unavailable')
+        end
+        return
+    end
     place(room, player)
 
-    local pointer = screen(room, Navigation.worldCursor(room))
+    local pointer = mousePosition()
     if browser.isOpen() then
         captured = true
         browser.onMousePressed(pointer, rightClick and 1 or 0)
-    elseif rightClick and anchor and roomSeed == room:GetSpawnSeed() and hit(pointer, screen(room, anchor)) then
-        captured = browser.open(player) == true
+    elseif rightClick then
+        local position = screen(room, anchor)
+        local hovered = hoveredVendor(room, pointer, position)
+        if hovered then
+            captured = true
+            local opened = browser.open(player)
+            traceClick(opened and 'opened' or 'panel unavailable', pointer, hovered)
+        else
+            traceClick('missed', pointer, position)
+        end
     end
 end
 
@@ -114,7 +152,7 @@ end
 local function update()
     sampleInput()
     local room, player = shopRoom(), owner()
-    if not room or not player or not available(player) then
+    if not canShop(room, player) then
         if browser.isOpen() then browser.close() end
         return
     end
@@ -123,16 +161,19 @@ end
 
 function Shopkeeper.render()
     local room, player = shopRoom(), owner()
-    if not room or not player or not available(player) then return end
+    if not canShop(room, player) then return end
     place(room, player)
     local position = screen(room, anchor)
-    local pointer = screen(room, Navigation.worldCursor(room))
+    local pointer = mousePosition()
     if keeper then keeper:Render(position)
     else Isaac.RenderText('Merchant', position.X - 18, position.Y - 18, 1, .82, .47, 1) end
-    if browser.isOpen() then browser.render(pointer)
-    elseif hit(pointer, position) then
-        if icon then icon:Render(position + Vector(-34, -60)) end
-        Isaac.RenderText('RMB - Recipes', position.X - 22, position.Y - 64, 1, .85, .5, 1)
+    if browser.isOpen() then
+        browser.render(pointer)
+    else
+        local hovered = hoveredVendor(room, pointer, position)
+        if not hovered then return end
+        if icon then icon:Render(hovered + Vector(-34, -60)) end
+        Isaac.RenderText('RMB - Recipes', hovered.X - 22, hovered.Y - 64, 1, .85, .5, 1)
     end
 end
 

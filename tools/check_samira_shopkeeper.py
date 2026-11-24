@@ -14,6 +14,7 @@ local vector = {}
 vector.__index = vector
 function Vector(x, y) return setmetatable({X=x, Y=y}, vector) end
 function vector.__add(a, b) return Vector(a.X + b.X, a.Y + b.Y) end
+function vector.__sub(a, b) return Vector(a.X - b.X, a.Y - b.Y) end
 function vector:Distance(other)
     return math.sqrt((self.X - other.X)^2 + (self.Y - other.Y)^2)
 end
@@ -30,7 +31,6 @@ function mod:AddCallback(event, callback) callbacks[event] = callback end
 RoomType = {ROOM_SHOP=2}
 EntityType = {ENTITY_PICKUP=5, ENTITY_SHOPKEEPER=17}
 GridCollisionClass = {COLLISION_NONE=0}
-Input = {IsMouseBtnPressed=function(button) return buttons[button] == true end}
 local tiles = {Vector(100, 50), Vector(140, 50), Vector(80, 75)}
 local room, player = {shop=true, clear=true, seed=2}, {Position=Vector(100, 120)}
 function room:GetType() return self.shop and RoomType.ROOM_SHOP or 1 end
@@ -47,19 +47,26 @@ function room:GetGridEntity() return nil end
 function room:GetDoor() return nil end
 
 local cursor = Vector(140, 50)
+local viewportOrigin = Vector(0, 0)
+Input = {
+    IsMouseBtnPressed=function(button) return buttons[button] == true end,
+    GetMousePosition=function(world)
+        assert(not world)
+        return Vector((cursor.X - viewportOrigin.X) * 4, (cursor.Y - viewportOrigin.Y) * 4)
+    end,
+}
 local passing = false
 local game = {GetRoom=function() return room end}
 Isaac = {
     IsInGame=function() return true end,
-    GetRoomEntities=function() return {{Type=5, Position=tiles[1]}} end,
+    GetRoomEntities=function()
+        return {{Type=5, Position=tiles[1]}, {Type=17, Position=Vector(224, 60)}}
+    end,
+    ScreenToWorld=function(point) return Vector(point.X / 4, point.Y / 4) + viewportOrigin end,
     WorldToScreen=function(point) return Vector(point.X, point.Y) end,
     GetScreenWidth=function() return 300 end,
     RenderText=function() end,
 }
-function include(name)
-    assert(name == 'samira_navigation')
-    return {worldCursor=function() return cursor end}
-end
 function Sprite(path)
     local sprite = {path=path}
     function sprite:Play(animation) self.animation=animation end
@@ -109,14 +116,26 @@ assert(not panel.opened and merchant.isBlocking(), 'Closing click must remain ca
 tick(false, false)
 assert(not merchant.isBlocking())
 
+cursor = Vector(224, 39)
+buttons[1] = true
+assert(merchant.isBlocking() and panel.opened, 'The stock Isaac shopkeeper must also open the recipe panel')
+tick(false, false)
+tick(true, false)
+tick(false, false)
+
 room.mirror, room.seed = true, 3
 roomChanged()
-cursor = Vector(140, 30)
+viewportOrigin = Vector(-48, -20)
+cursor = Vector(160, 30)
 merchant.render()
 assert(sprites[#sprites].path:find('shopkeeper_north', 1, true))
 assert(sprites[#sprites].position.X == 160)
 tick(true, false)
-assert(panel.opened, 'Mirrored vendor and click must use the same projection')
+assert(panel.opened, 'Merchant click must include the viewport origin in a scaled mirror room')
+tick(false, false)
+cursor = Vector(190, 170)
+tick(false, true)
+assert(panel.pointer.X == 190 and panel.pointer.Y == 170, 'Recipe clicks must use the same render coordinates')
 roomChanged()
 assert(not panel.opened)
 room.shop = false
