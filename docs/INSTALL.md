@@ -1,10 +1,10 @@
 # Установка на Windows
 
-Soul Fighter Samira 0.3.2 — экспериментальная сборка для одиночных забегов. Нужны Windows 10/11 x64, видеодрайвер с OpenGL 3.3, The Binding of Isaac: Repentance+ и установленный REPENTOGON. Python и зависимости рендера входят в архив. [Установка REPENTOGON](https://repentogon.com/install.html)
+Soul Fighter Samira 0.5.48 — экспериментальная сборка для одиночных забегов. Нужны Windows 10/11 x64, видеодрайвер с OpenGL 3.3, The Binding of Isaac: Repentance+ и установленный REPENTOGON. Python и зависимости рендера входят в архив. [Установка REPENTOGON](https://repentogon.com/install.html)
 
-1. Скачай Windows ZIP из раздела **Assets** и распакуй его целиком в папку с правом записи. [Последний релиз](https://github.com/AverDroz/Soul-Fighter-Samira/releases/latest)
+1. Скачай Windows ZIP из раздела **Assets** и распакуй его целиком в папку с правом записи. [Последний релиз](https://github.com/N1kromant/Soul-Fighter-Samira/releases/tag/mf-v0.5.48)
 2. Закрой Isaac и открой `launch.cmd`. При первом запуске выбери каталог игры с `isaac-ng.exe`. Запускатель скопирует мод и запустит внешний рендер.
-3. Открой Isaac через REPENTOGON, включи **Soul Fighter Samira** в меню **Mods** и выбери **Samira** в новом одиночном забеге.
+3. Открой Isaac через REPENTOGON, включи **Soul Fighter Samira** в меню **Mods** и выбери **Samira**, **Yone** или **Miss Fortune** в новом одиночном забеге.
 
 Перед каждым сеансом запускай `launch.cmd`. Чтобы завершить рендер, открой `stop.cmd`. После обновления полностью перезапусти игру и рендер. Если внешний слой скрывается в полноэкранном режиме, переключи Isaac в оконный режим.
 

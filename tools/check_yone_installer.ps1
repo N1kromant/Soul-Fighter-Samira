@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 $path = Join-Path $PSScriptRoot 'install-yone.cmd'
 $text = [IO.File]::ReadAllText($path, [Text.Encoding]::UTF8)
 $marker = '@POWERSHELL_PAYLOAD@'
@@ -8,7 +8,10 @@ $payload = $text.Substring($position + $marker.Length)
 $tokens = $errors = $null
 [void][System.Management.Automation.Language.Parser]::ParseInput($payload, [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw ($errors | Out-String) }
-if ([regex]::Matches($payload, '__YONE_RELEASE_SHA256__').Count -ne 1) { throw 'Release substitutions need exactly one hash placeholder' }
+if ($payload -notmatch '(?m)^\$releaseHash = ''[0-9a-f]{64}''') { throw 'Expected a pinned shared release ZIP checksum' }
+foreach ($required in @('samira_shopkeeper.lua','samira_shop_crafting.lua','shopkeeper_north.anm2','shopkeeper_south.anm2','shop_ui.anm2')) {
+    if (-not $payload.Contains($required)) { throw "Missing shop install requirement: $required" }
+}
 . ([scriptblock]::Create($payload)) -LibraryOnly
 
 function Assert($Condition, [string]$Message) {

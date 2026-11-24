@@ -164,7 +164,15 @@ XMLData = {GetCurrentMod = function() return {fulldirectory = modDirectory} end}
 function include(name)
     local module = actualInclude(name)
     if name == 'samira_shop_crafting' then shop = module end
-    if name == 'samira_inventory' then module.recipes = function() return {} end end
+    if name == 'samira_inventory' then
+        module.recipes = function() return {} end
+        module.slots = function() return {} end
+        module.selected = function() return 1 end
+    end
+    -- Run the real backpack before merchant.render, as main.lua does in game.
+    if name == 'samira_inventory_hud' then
+        module = assert(load(sourceFiles[name], '@' .. name .. '.lua'))()
+    end
     return module
 end
 include('main')
@@ -181,6 +189,7 @@ function room:GetCenterPos() return Vector(200,120) end
 function room:GetTopLeftPos() return Vector.Zero end
 function room:GetSpawnSeed() return 2 end
 function player:GetNumCoins() return 0 end
+function player:GetTrinket() return 0 end
 local renderedRecipes = false
 Isaac.DrawLine = function() end
 Isaac.RenderText = function() end

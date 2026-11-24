@@ -403,8 +403,8 @@ function Test-PresentedFrame([string]$Log) {
 
 if ($LibraryOnly) { return }
 
-$releaseHash = '__YONE_RELEASE_SHA256__'
-$releaseUrl = 'https://github.com/N1kromant/Soul-Fighter-Samira/releases/download/yone-immersion-v27/Soul-Fighter-Samira-Yone-v27-Windows.zip'
+$releaseHash = '0b7f3ebfa48ee7a6d3db1d78baadd14f6d8071703df11c4a3df05e007b575ce3'
+$releaseUrl = 'https://github.com/N1kromant/Soul-Fighter-Samira/releases/download/mf-v0.5.48/Soul-Fighter-Miss-Fortune-Local-Windows.zip'
 $launcherHash = '7e4a45d8b9f099ea79e42f86bc24c2a05b35e239d7bc4d597c11b5bceaccfd6a'
 $launcherUrl = 'https://github.com/TeamREPENTOGON/Launcher/releases/download/v0.4.9-beta/REPENTOGONLauncher.zip'
 $cache = Join-Path $env:LOCALAPPDATA 'YoneInstaller'
@@ -453,7 +453,7 @@ try {
     Write-Host "Папка обмена Companion: $($paths.Status)"
     Assert-ModDestination (Join-Path $paths.Mods $modDirectory)
 
-    $releaseZip = Join-Path $cache 'Yone-v27.zip'
+    $releaseZip = Join-Path $cache 'Soul-Fighter-0.5.48.zip'
     $launcherZip = Join-Path $cache 'REPENTOGONLauncher-0.4.9-beta.zip'
     Get-VerifiedFile $releaseUrl $releaseZip $releaseHash
     Get-VerifiedFile $launcherUrl $launcherZip $launcherHash
@@ -463,6 +463,14 @@ try {
     Install-CachedArchive $releaseZip $payload $releaseHash 'Soul-Fighter-Samira' @(
         'samira_testroom\main.lua', 'samira_testroom\metadata.xml', 'samira_testroom\content\players.xml',
         'samira_testroom\resources\gfx\yone\ability_icons.anm2', 'samira_testroom\resources\gfx\yone\ability_icons.png',
+        'samira_testroom\samira_shopkeeper.lua',
+        'samira_testroom\samira_shop_crafting.lua',
+        'samira_testroom\resources\gfx\league_shop\shopkeeper_north.anm2',
+        'samira_testroom\resources\gfx\league_shop\shopkeeper_north.png',
+        'samira_testroom\resources\gfx\league_shop\shopkeeper_south.anm2',
+        'samira_testroom\resources\gfx\league_shop\shopkeeper_south.png',
+        'samira_testroom\resources\gfx\league_shop\shop_ui.anm2',
+        'samira_testroom\resources\gfx\league_shop\shop_ui.png',
         'companion\assets\yone-local\yone.glb', 'companion\assets\yone-local\actions.json',
         'companion\python\pythonw.exe', 'companion\tools\run_testroom_renderer.py'
     )

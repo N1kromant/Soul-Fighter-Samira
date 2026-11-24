@@ -1,6 +1,6 @@
 # Samira in Isaac
 
-[Скачать Windows-сборку](https://github.com/AverDroz/Soul-Fighter-Samira/releases/latest) · [Установка и запуск](docs/INSTALL.md)
+[Скачать Windows-сборку](https://github.com/N1kromant/Soul-Fighter-Samira/releases/tag/mf-v0.5.48) · [Обновить установщик Ёнэ](https://github.com/N1kromant/Soul-Fighter-Samira/releases/download/mf-v0.5.48/Install-Yone.cmd) · [Установка и запуск](docs/INSTALL.md)
 
 Личный мод для The Binding of Isaac: Repentance+ с REPENTOGON. **Samira выбирается в меню персонажей** и начинает с трёх красных сердец и базовыми характеристиками Isaac. Мод добавляет управление мышью и QWER, ранги стиля, 73 предмета LoL, магазин компонентов и рюкзак на шесть слотов. [Запуск и управление](src/samira-testroom/README.md)
 
