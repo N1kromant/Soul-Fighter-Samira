@@ -10,7 +10,7 @@ local Sprites = include('miss_fortune_sprite')
 local Special = include('miss_fortune_special_animations')
 local json = require('json')
 local playerType, state, game, items, weapons, display, readScale, readUltimate, fallbackSprite, badge
-local isCrafting, isOtherChampion, testMode, inventoryBounds
+local shop, isOtherChampion, testMode, inventoryBounds
 local modelScale = .26
 local bodyScale = modelScale / .42
 -- The action baker renders at .9 model scale and downsamples by 4.15.
@@ -85,6 +85,9 @@ end
 local function hidden(p,death)
     return combatSuspended() or not death and (p:IsDead() or p.ControlsEnabled==false)
         or (ImGui and ImGui.IsVisible())
+end
+local function shopOpen()
+    return shop ~= nil and shop.isOpen()
 end
 local function runes()
     return items and items.missFortuneRunes and items.missFortuneRunes()
@@ -430,7 +433,7 @@ local function prepareNativePose(p,clock)
     if state.nativeDisplay~=d.id then
         state.nativeDisplay,state.nativeAfter=d.id,now+displaySettleMillis
     end
-    if now<state.nativeAfter or companionReady(now,d) then return end
+    if now<state.nativeAfter or (not shopOpen() and companionReady(now,d)) then return end
     local clip,frame,_,duration,_,expression=currentPose(p,clock,death)
     state.nativeClip,state.nativeFrame=Sprites.sample(clip,frame,duration,expression)
     state.nativeDeath=death
@@ -449,7 +452,7 @@ end
 local function emit(p,clock)
     local now=Isaac.GetTime(); local width,height,d=display.sample()
     local death=deathAnimating(p)
-    local occluded=hidden(p,death)
+    local occluded=hidden(p,death) or shopOpen()
     if state.emitAt and now-state.emitAt<30 and state.lastHidden==occluded and state.emitDisplay==d.id then return end
     state.emitAt,state.lastHidden,state.emitDisplay=now,occluded,d.id
     state.seq=state.seq+1
@@ -601,10 +604,10 @@ local function move(p,room,clock,manual,attack)
         if delta:Length()>.001 then state.intent=delta:Normalized()*throttle end
     elseif final and not target then stopMoving() end
 end
-function MF.init(mod,g,itemModule,inventory,weaponModule,readHudScale,readR,sharedDisplay,crafting,otherChampion,readInventoryBounds)
+function MF.init(mod,g,itemModule,inventory,weaponModule,readHudScale,readR,sharedDisplay,recipeShop,otherChampion,readInventoryBounds)
     game,items,weapons,readScale,readUltimate=g,itemModule,weaponModule,readHudScale,readR
     display=sharedDisplay or include('samira_display')
-    isCrafting,isOtherChampion,inventoryBounds=crafting,otherChampion,readInventoryBounds
+    shop,isOtherChampion,inventoryBounds=recipeShop,otherChampion,readInventoryBounds
     mod:AddCallback(ModCallbacks.MC_POST_GAME_STARTED,function(_,continued)
         stop()
         testMode=false
@@ -635,7 +638,7 @@ function MF.init(mod,g,itemModule,inventory,weaponModule,readHudScale,readR,shar
         sampleRunePicker(not hidden(p) and picking())
         local death=deathAnimating(p)
         local dead=p:IsDead() or death
-        local allowed=not dead and MF.canUseItems(p) and not (isCrafting and isCrafting())
+        local allowed=not dead and MF.canUseItems(p) and not (shop and shop.isBlocking())
         if dead then
             if not state.awaitingRevive then
                 state.action=nil
@@ -779,7 +782,7 @@ function MF.init(mod,g,itemModule,inventory,weaponModule,readHudScale,readR,shar
         if not axis and not shoot and not key and not (active and picking()) then return end
         local p=owner(); local ep=entity and entity:ToPlayer()
         if not p or entity and (not ep or ep.Index~=p.Index) or (p.ControllerIndex or 0)~=0 then return end
-        local allowed=MF.canUseItems(p) and not (isCrafting and isCrafting())
+        local allowed=MF.canUseItems(p) and not (shop and shop.isBlocking())
         if shoot then
             if allowed and weapons and weapons.input then return weapons.input(p,hook,action) end
             return hook==InputHook.GET_ACTION_VALUE and 0 or false
@@ -826,7 +829,7 @@ function MF.init(mod,g,itemModule,inventory,weaponModule,readHudScale,readR,shar
                 p.SpriteScale or Vector(1,1),bodyScale,modelScale)
         end
         local now=Isaac.GetTime(); local _,_,d=display.sample()
-        if companionReady(now,d) then return false end
+        if not shopOpen() and companionReady(now,d) then return false end
         if offset and drawFallback(p,offset,death,d.id) then return false end
     end)
     if ModCallbacks.MC_PRE_TEAR_RENDER then
@@ -846,7 +849,7 @@ function MF.init(mod,g,itemModule,inventory,weaponModule,readHudScale,readR,shar
     mod:AddCallback(ModCallbacks.MC_POST_RENDER,function()
         local p=state and owner(); if not p then return end
         local clock=game:GetFrameCount(); emit(p,clock)
-        if not hidden(p) then
+        if not hidden(p) and not shopOpen() then
             local scale=readScale and readScale() or 1
             if picking() then
                 HUD.renderRunePicker(Runes.choices,state.runeSelection,scale)

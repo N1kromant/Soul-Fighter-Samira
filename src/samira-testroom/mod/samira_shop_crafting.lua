@@ -8,7 +8,7 @@ for _, row in ipairs(include('samira_items_data')) do items[row.riotId] = row en
 
 local panelWidth, panelHeight, pageSize = 358, 184, 7
 local inventory, owner, font, colors, artwork
-local page, selected, feedback, feedbackOK
+local page, selected, displayed, feedback, feedbackOK
 local metadata = XMLData and XMLData.GetCurrentMod and XMLData.GetCurrentMod()
 local modDirectory = metadata and metadata.fulldirectory or 'mods/samira_testroom'
 
@@ -64,24 +64,48 @@ local function icon(item, rect, s)
     end
 end
 
-local function pageData()
-    local recipes = {}
+local function canCraft(recipe, coins)
+    return #recipe.missing == 0 and coins >= recipe.combinePrice
+end
+
+local function pageData(coins)
+    local groups = {{}, {}, {}, {}}
     for _, recipe in ipairs(inventory.recipes(owner)) do
-        if not recipe.row.component then recipes[#recipes + 1] = recipe end
+        if not recipe.row.component then
+            local missing = #recipe.missing
+            local priority = 4
+            if canCraft(recipe, coins) then
+                priority = 1
+            elseif missing == 0 then
+                priority = 2
+            elseif missing < #recipe.row.components then
+                priority = 3
+            end
+            local group = groups[priority]
+            group[#group + 1] = recipe
+        end
     end
+    local recipes, active = {}, nil
+    for _, group in ipairs(groups) do
+        for _, recipe in ipairs(group) do
+            recipes[#recipes + 1] = recipe
+            if recipe.row.riotId == selected then
+                page = math.ceil(#recipes / pageSize)
+                active = recipe
+            end
+        end
+    end
+    if not active then selected, feedback = nil, nil end
     local pages = math.max(1, math.ceil(#recipes / pageSize))
     page = math.min(page, pages)
-    local visible, active = {}, nil
+    local visible = {}
     local first = (page - 1) * pageSize
     for i = 1, pageSize do
         local recipe = recipes[first + i]
         if not recipe then break end
         visible[i] = recipe
-        if recipe.row.riotId == selected then active = recipe end
     end
-    active = active or visible[1]
-    selected = active and active.row.riotId
-    return visible, active, pages
+    return {visible = visible, active = active or visible[1], pages = pages}
 end
 
 local function geometry()
@@ -100,10 +124,6 @@ local function geometry()
     }
 end
 
-local function canCraft(recipe, coins)
-    return #recipe.missing == 0 and coins >= recipe.combinePrice
-end
-
 function ShopCrafting.init(itemsInventory)
     inventory = itemsInventory
     ShopCrafting.close()
@@ -111,7 +131,7 @@ end
 
 function ShopCrafting.open(player)
     if not inventory or not player or not setup() then return false end
-    owner, page, selected, feedback = player, 1, nil, nil
+    owner, page, selected, displayed, feedback = player, 1, nil, nil, nil
     return true
 end
 
@@ -120,7 +140,7 @@ function ShopCrafting.isOpen()
 end
 
 function ShopCrafting.close()
-    owner, selected, feedback = nil, nil, nil
+    owner, selected, displayed, feedback = nil, nil, nil, nil
 end
 
 function ShopCrafting.onMousePressed(pointer, mouseButton)
@@ -132,18 +152,30 @@ function ShopCrafting.onMousePressed(pointer, mouseButton)
     if mouseButton ~= 0 then return false end
     local view = geometry()
     if not view then return true end
-    local visible, active, pages = pageData()
     if inside(pointer, view.close) then
         ShopCrafting.close()
+    elseif not displayed then
+        return true
     elseif page > 1 and inside(pointer, view.previous) then
-        page, selected, feedback = page - 1, nil, nil
-    elseif page < pages and inside(pointer, view.next) then
-        page, selected, feedback = page + 1, nil, nil
-    elseif active and inside(pointer, view.craft) and canCraft(active, owner:GetNumCoins()) then
-        local ok, reason = inventory.craft(owner, selected)
-        feedback, feedbackOK = Crafting.result(selected, ok, reason), ok
+        page, selected, displayed, feedback = page - 1, nil, nil, nil
+    elseif page < displayed.pages and inside(pointer, view.next) then
+        page, selected, displayed, feedback = page + 1, nil, nil, nil
+    elseif inside(pointer, view.craft) then
+        -- Recheck the displayed recipe because inventory changes can reorder the list.
+        local active = displayed.active
+        if active and displayed.craftEnabled then
+            local id, coins = active.row.riotId, owner:GetNumCoins()
+            for _, recipe in ipairs(inventory.recipes(owner)) do
+                if recipe.row.riotId == id and canCraft(recipe, coins) then
+                    selected = id
+                    local ok, reason = inventory.craft(owner, id)
+                    feedback, feedbackOK = Crafting.result(id, ok, reason), ok
+                    break
+                end
+            end
+        end
     else
-        for i, recipe in ipairs(visible) do
+        for i, recipe in ipairs(displayed.visible) do
             if inside(pointer, view.row(i)) then
                 selected, feedback = recipe.row.riotId, nil
                 break
@@ -174,8 +206,10 @@ function ShopCrafting.render(pointer)
         text(value, rect(x, y, width, 0), (scale or .75) * s, color or colors.white)
     end
 
-    local visible, active, pages = pageData()
     local coins = owner:GetNumCoins()
+    displayed = pageData(coins)
+    local visible, active, pages = displayed.visible, displayed.active, displayed.pages
+    displayed.craftEnabled = active and canCraft(active, coins)
     if artwork then
         drawArt('Panel', rect(0, 0, panelWidth, panelHeight), 320, 252)
     else
@@ -229,7 +263,7 @@ function ShopCrafting.render(pointer)
         label(missing[i] and 'Нет' or 'Есть', 298, y, 48, missing[i] and colors.muted or colors.ready, .70)
     end
 
-    button(view.craft, 'Собрать', s, pointer, canCraft(active, coins))
+    button(view.craft, 'Собрать', s, pointer, displayed.craftEnabled)
     if feedback then
         label(feedback, 200, 163, 146, feedbackOK and colors.ready or colors.gold)
     elseif #active.missing > 0 then

@@ -238,15 +238,22 @@ do
     local rows = {}
     for _, row in ipairs(include('samira_items_data')) do rows[row.riotId] = row end
     local coins, daggers, purchases = 5, 1, 0
+    local haveGlaiveParts = true
     function player:GetNumCoins() return coins end
     inventory.recipes = function(owner)
         assert(owner == player)
         local recipes = {}
         local missing = {{1042, 3086, 1042}, {1042}, {}}
-        for _, id in ipairs({6696, 1053, 6675, 3031, 3046, 6673, 3179, 3181, 6692}) do
+        for _, id in ipairs({6696, 1053, 3031, 3046, 6673, 3179, 3181, 6692, 6675}) do
             local row = rows[id]
+            local missingParts = row.components
+            if id == 6675 then
+                missingParts = missing[daggers + 1]
+            elseif id == 3031 or (id == 3179 and haveGlaiveParts) or id == 3181 then
+                missingParts = {}
+            end
             recipes[#recipes + 1] = {row = row, combinePrice = row.combinePrice,
-                missing = id == 6675 and missing[daggers + 1] or row.components}
+                missing = missingParts}
         end
         return recipes
     end
@@ -267,11 +274,14 @@ do
             if row[1]:find(label, 1, true) then return row end
         end
     end
-    local function click(label)
-        render()
+    local function pressDisplayed(label)
         local target = assert(find(label), label)
         pointer = Vector(target[2] + 1, target[3] + 1)
         assert(craft.onMousePressed(pointer, 0))
+    end
+    local function click(label)
+        render()
+        pressDisplayed(label)
         render()
     end
     render()
@@ -281,6 +291,19 @@ do
     assert(craft.isOpen() and find('Рецепты') and find('1 / 2'))
     assert(icons[1][1] == 'Panel' and icons[2][1] == 'Shop' and icons[3][1] == 'Coin')
     assert(not find('Вампирский скипетр'), 'floor component appeared in recipe catalog')
+    local expectedOrder, rowIndex = {3179, 3181, 3031, 6675, 6696, 3046, 6673}, 1
+    local craftButtonX = find('Собрать')[2]
+    for _, word in ipairs(words) do
+        local expected = rows[expectedOrder[rowIndex]]
+        if expected and word[1] == expected.name and word[2] < craftButtonX then
+            rowIndex = rowIndex + 1
+        end
+    end
+    assert(rowIndex == #expectedOrder + 1, 'recipe priorities or catalogue order are incorrect')
+    haveGlaiveParts = false
+    pressDisplayed('Собрать')
+    assert(purchases == 0, 'a new top recipe was submitted in place of the displayed recipe')
+    haveGlaiveParts = true
     click('>')
     assert(find('2 / 2'), 'second recipe page is unreachable')
     click('<')
@@ -305,6 +328,7 @@ do
     coins = 6
     click('Собрать')
     assert(purchases == 1 and find('Собран предмет'))
+    assert(find('2 / 2') and find('Летающий нож Навори'), 'selected recipe was lost after crossing pages')
     click('Собрать')
     assert(purchases == 1, 'missing material allowed another purchase')
     assert(craft.onMousePressed(pointer, 1))

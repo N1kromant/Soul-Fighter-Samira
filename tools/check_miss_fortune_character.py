@@ -156,7 +156,9 @@ items={newAttack=function(p,k,t) return {kind=k,origin=p.Position} end,onCast=fu
 local displayId,displayMode=1,'windowed'
 display={acquire=function() end,release=function() end,sample=function() return 800,600,{id=displayId,mode=displayMode} end}
 Isaac.LoadModDataFromFolder=function() return lease and 'ack' or '' end
-mf=include('miss_fortune_character'); mf.init(mod,game,items,nil,weapons,function() return 1 end,function() return held.r end,display)
+local shopping=false
+local shop={isOpen=function() return shopping end,isBlocking=function() return shopping end}
+mf=include('miss_fortune_character'); mf.init(mod,game,items,nil,weapons,function() return 1 end,function() return held.r end,display,shop)
 call('MC_POST_GAME_STARTED',false); assert(mf.player(game)==player and mf.canUseItems(player))
 local bounds=mf.hudBounds(.8, {x=10,y=545,right=330,bottom=598,width=320,height=53})
 assert(bounds.y>480 and bounds.x>=0 and bounds.right<=800 and bounds.bottom<=600,
@@ -172,15 +174,25 @@ assert(labels['25%'] and labels['2.14'],'MF panel must show live item crit and n
 local tearContext={kind='q',nativeWeapon=true,player=player}
 local nativeTag={context=tearContext}
 local qtear={Position=Vector(10,0),Velocity=Vector(4,0),TearFlags=0,Variant=TearVariant.BLUE,
+ FrameCount=0,Height=-20,PositionOffset=Vector(2,1),SpriteOffset=Vector(-1,-2),
  GetData=function() return {SamiraNativeWeapon=nativeTag} end}
 local shotAtlas='gfx/mf/shot_effects.anm2'
-assert(call('MC_PRE_TEAR_RENDER',qtear,Vector.Zero)==false)
+local renderOffset=Vector(1,4)
+assert(call('MC_PRE_TEAR_RENDER',qtear,renderOffset)==false
+ and rendered(shotAtlas,'QBullet').position.Y==-17,
+ 'the muzzle discharge should start at the original shot height')
+qtear.FrameCount=3
+art={}
+assert(call('MC_PRE_TEAR_RENDER',qtear,renderOffset)==false)
 local qBullet=rendered(shotAtlas,'QBullet')
 assert(qBullet and renders(shotAtlas,'QGlow'),'Double Up uses its own source glow and red shell')
+assert(qBullet.position.X==12 and qBullet.position.Y==-8 and qtear.Height==-20,
+ 'Double Up should draw lower while preserving render offsets and native tear physics')
 tearContext.kind='aa'; art={}
-assert(call('MC_PRE_TEAR_RENDER',qtear,Vector.Zero)==false and renders('gfx/mf/projectiles.anm2','Bullet'),
+assert(call('MC_PRE_TEAR_RENDER',qtear,renderOffset)==false and renders('gfx/mf/projectiles.anm2','Bullet'),
  'ordinary native autoattacks use the same real Skin69 shell mesh as Double Up')
 local aaBullet=rendered('gfx/mf/projectiles.anm2','Bullet')
+assert(aaBullet.position.X==12 and aaBullet.position.Y==-8,'ordinary shots should draw at the same height as Double Up')
 assert(aaBullet.scale.X<qBullet.scale.X and qBullet.scale.X<.6 and renders(shotAtlas,'AATrail')
  and not renders(shotAtlas,'QGlow'),
  'standard shots use a compact source-colored shell, with a slightly larger Double Up')
@@ -782,6 +794,16 @@ lease={version=1,hero='mf',session=packet.session,room=packet.room,display=displ
 advance(clock+3)
 art={}; assert(call('MC_PRE_PLAYER_RENDER',player,Vector.Zero)==false)
 assert(#art==0 and not nativeLoads[laughAtlas],'healthy Companion owns the visual without opening a native shard')
+shopping=true
+call('MC_POST_RENDER')
+assert(packet.occluded and not packet.renderCaptured and #art==0,
+ 'an open shop hides the Companion and skips the later MF HUD draw immediately')
+assert(call('MC_PRE_PLAYER_RENDER',player,Vector.Zero)==false and #art>0,
+ 'the native player sprite remains visible below the shop even with a valid Companion acknowledgement')
+assert(mf.canUseItems(player), 'the shop overlay must not invalidate its own merchant')
+shopping=false
+call('MC_POST_RENDER')
+assert(not packet.occluded and packet.renderCaptured, 'closing the shop restores Companion presentation immediately')
 lease=nil; displayId=3; displayMode='exclusive'; missingClip=laughAtlas
 advance(clock+6); art={}
 assert(call('MC_PRE_PLAYER_RENDER',player,Vector.Zero)==false and art[#art][1]=='gfx/mf/fallback.anm2'

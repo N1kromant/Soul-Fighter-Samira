@@ -539,5 +539,5 @@ Yone.init(mod, game, Items, Inventory, InventoryHUD.bounds, Display, ControlsSet
         start()
     end
 end, Shopkeeper.isBlocking)
-MissFortune.init(mod, game, Items, Inventory, Weapons, ControlsSettings.hudScale, readR, Display, Shopkeeper.isBlocking,
+MissFortune.init(mod, game, Items, Inventory, Weapons, ControlsSettings.hudScale, readR, Display, Shopkeeper,
     Yone.is, InventoryHUD.bounds)

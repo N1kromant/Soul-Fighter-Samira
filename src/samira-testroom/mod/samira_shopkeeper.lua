@@ -141,12 +141,16 @@ local function sampleInput()
     end
 end
 
+function Shopkeeper.isOpen()
+    return browser ~= nil and browser.isOpen()
+end
+
 function Shopkeeper.isBlocking()
     if not browser then return false end
     -- Isaac can ask for a movement action before MC_POST_UPDATE. Let the
     -- merchant claim the current edge before any gameplay caller reads it.
     sampleInput()
-    return browser.isOpen() or captured
+    return Shopkeeper.isOpen() or captured
 end
 
 local function update()

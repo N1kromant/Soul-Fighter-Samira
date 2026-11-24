@@ -8,6 +8,7 @@ local particle, ultimateParticle, recallParticle, recallPropParticle, recallPetP
 local recallBurstParticle
 local strutParticle, jokeParticle, shotParticle, danceParticle, lifecycleParticle, tauntParticle
 local bounceFrames = 8
+local bulletHeightScale = .55
 
 function Effects.playSound(cue, volume, loop)
     if not SFXManager or not Isaac.GetSoundIdByName then return end
@@ -535,7 +536,11 @@ end
 function Effects.renderTear(tear, offset, kind)
     if not sprite() then return false end
     local project = Isaac.WorldToRenderPosition
-    local pos = project(tear.Position + Vector(0, tear.Height or 0))
+    -- Keep the launch at its original height, then lower the rendered arc.
+    -- The engine still owns the tear height, flight time and collisions.
+    local flight = math.min(1, (tear.FrameCount or 0) / 3)
+    local height = (tear.Height or 0) * (1 - (1 - bulletHeightScale) * flight)
+    local pos = project(tear.Position + Vector(0, height))
     if offset then pos = pos + offset end
     if tear.PositionOffset then pos = pos + tear.PositionOffset end
     if tear.SpriteOffset then pos = pos + tear.SpriteOffset end

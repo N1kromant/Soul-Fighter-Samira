@@ -3,14 +3,20 @@ local SharedHUD = include('yone_hud')
 local abilities = {'q', 'w', 'e', 'r'}
 local width, height, margin = 215, 39, 6
 local inset, iconSize, iconStep = 99, 24, 28
+local statWidth, statHeight = 27, 10
 local statsLayout = {
-    {'damage', '%.2f'}, {'crit', '%.0f%%'},
-    {'attacks', '%.2f'}, {'haste', '%g'},
-    {'move', '%.2f'}, {'range', '%.0f'},
+    {'damage', '%.2f', 'Урон', 'Базовый урон попадания автоатакой.'},
+    {'crit', '%.0f%%', 'Шанс критического удара', 'Вероятность нанести повышенный урон.'},
+    {'attacks', '%.2f', 'Темп автоатак', 'Количество автоатак в секунду.'},
+    {'haste', '%g', 'Ускорение умений', 'Сокращает время перезарядки умений.'},
+    {'move', '%.2f', 'Скорость передвижения', 'Влияет на скорость движения по комнате.'},
+    {'range', '%.0f', 'Дальность автоатак', 'Расстояние, на котором можно попасть автоатакой.'},
 }
 local warm, muted, light = {1, .83, .60, 1}, {.72, .75, .79, 1}, {1, .94, .84, 1}
 local shadow = {.025, .033, .052, 1}
-local icons, colors
+local icons, colors, tooltipFont
+local metadata = XMLData and XMLData.GetCurrentMod and XMLData.GetCurrentMod()
+local modDirectory = metadata and metadata.fulldirectory or 'mods/samira_testroom'
 
 function HUD.bounds(requestedScale, backpack)
     local sw, sh = Isaac.GetScreenWidth(), Isaac.GetScreenHeight()
@@ -46,6 +52,8 @@ local function setUp()
         gold=KColor(.65, .49, .31, 1), bright=KColor(.87, .69, .44, 1),
         glyph=KColor(.80, .67, .47, 1), dim=KColor(.34, .36, .42, 1),
         shade=KColor(.034, .040, .068, .59),
+        hover=KColor(.17, .19, .26, 1), tooltip=KColor(.033, .06, .096, 1),
+        tooltipText=KColor(1, .94, .84, 1),
     }
 end
 
@@ -71,19 +79,58 @@ local function art(name, x, y, size)
     icons:Render(Vector(x, y))
 end
 
-local function drawStats(x, y, s, stats)
+local function mousePosition()
+    if not (Input and Input.GetMousePosition and Isaac.ScreenToWorld and Isaac.WorldToScreen) then return end
+    return Isaac.WorldToScreen(Isaac.ScreenToWorld(Input.GetMousePosition(false)))
+end
+
+local function drawStats(x, y, s, stats, pointer)
+    local hovered, anchor
     for i, stat in ipairs(statsLayout) do
         local value = stats and stats[stat[1]]
         if value ~= nil then
             if stat[1] == 'crit' then value = value * 100 end
-            local col = x + (i - 1) % 2 * 27 * s
-            local row = y + math.floor((i - 1) / 2) * 10 * s
+            local col = x + (i - 1) % 2 * statWidth * s
+            local row = y + math.floor((i - 1) / 2) * statHeight * s
+            if pointer and pointer.X >= col and pointer.X < col + statWidth * s
+                and pointer.Y >= row and pointer.Y < row + statHeight * s then
+                fill(col, row, statWidth * s, statHeight * s, colors.hover)
+                hovered, anchor = stat, col
+            end
             SharedHUD.drawStatGlyph(stat[1], col, row + .9 * s, .77 * s, colors.glyph)
             local text = stat[2]:format(value)
             local size = math.min(.88, 18 / math.max(1, Isaac.GetTextWidth(text))) * s
             label(text, col + 8 * s, row, size, light)
         end
     end
+    return hovered, anchor
+end
+
+local function drawTooltip(b, stat, anchor)
+    if not stat or not Font then return end
+    if tooltipFont == nil then
+        local candidate, loaded = Font(modDirectory .. '/resources/font/samira_items_ru.fnt')
+        if not loaded then candidate, loaded = Font('font/pftempestasevencondensed.fnt') end
+        tooltipFont = loaded and candidate or false
+    end
+    if not tooltipFont then return end
+
+    local sw, sh = Isaac.GetScreenWidth(), Isaac.GetScreenHeight()
+    local title, definition = stat[3], stat[4]
+    local textWidth = math.max(tooltipFont:GetStringWidthUTF8(title), tooltipFont:GetStringWidthUTF8(definition))
+    local above, below = b.y - 6, sh - b.bottom - 6
+    local s = math.min(math.max(.75, b.scale), (sw - 6) / (textWidth * .68 + 12))
+    local showAbove = above >= 34 * s or above >= below
+    s = math.min(s, (showAbove and above or below) / 34)
+    if s <= 0 then return end
+
+    local w, h = (textWidth * .68 + 12) * s, 34 * s
+    local x = math.max(3, math.min(anchor, sw - w - 3))
+    local y = showAbove and b.y - h - 3 or b.bottom + 3
+    fill(x, y, w, h, colors.gold)
+    fill(x + s, y + s, w - 2 * s, h - 2 * s, colors.tooltip)
+    tooltipFont:DrawStringScaledUTF8(title, x + 6 * s, y + 4 * s, .68 * s, .68 * s, colors.bright, 0, false)
+    tooltipFont:DrawStringScaledUTF8(definition, x + 6 * s, y + 18 * s, .68 * s, .68 * s, colors.tooltipText, 0, false)
 end
 
 local function drawAbilities(b, combat, clock)
@@ -143,8 +190,9 @@ function HUD.render(b, combat, clock, stats, runeRules, runeProgress)
     fill(x + 4 * s, y, b.width - 8 * s, s, colors.gold)
     art('Portrait', x + 3 * s, y + 1.5 * s, 36 * s)
     drawRune(x + 25 * s, y + 23 * s, s, runeRules, runeProgress, clock)
-    drawStats(x + 42 * s, y + 6 * s, s, stats)
+    local hovered, anchor = drawStats(x + 42 * s, y + 6 * s, s, stats, mousePosition())
     drawAbilities(b, combat, clock)
+    drawTooltip(b, hovered, anchor)
 end
 
 return HUD
